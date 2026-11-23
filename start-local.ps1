@@ -105,4 +105,4 @@ Write-Host "  按 Ctrl+C 停止服务"
 Write-Host "==============================================================" -ForegroundColor Green
 Write-Host ""
 
-& (Join-Path $Root ".venv\Scripts\uvicorn.exe") server:app --host $hostAddr --port $port --workers 1
+& (Join-Path $Root ".venv\Scripts\uvicorn.exe") dola_pool.server:app --host $hostAddr --port $port --workers 1

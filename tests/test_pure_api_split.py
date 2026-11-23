@@ -18,7 +18,7 @@ def test_duration_split_detector_covers_new_upstream_wording():
     认不出来的后果：30 秒任务既不判 duration_split，也不触发两段兜底，
     一直空等到 NO_ACK_SECONDS 才换号（表现为「任务长时间卡在生成中」）。
     """
-    from protocol import dola_pure_api as dola
+    from dola_pool.protocol import dola_pure_api as dola
 
     # CAP_TEXT 属于「上游自己压到 15 秒」那类，只要求 capped 判据命中（原有契约）
     assert dola.looks_like_duration_capped(CAP_TEXT) is True
@@ -82,13 +82,13 @@ class FakeDola:
 
 @pytest.fixture(autouse=True)
 def _fast_sleep(monkeypatch):
-    import pure_api_gen
+    from dola_pool import pure_api_gen
 
     monkeypatch.setattr(pure_api_gen.time, "sleep", lambda _seconds: None)
 
 
 def _run(dola, duration=30):
-    import pure_api_gen
+    from dola_pool import pure_api_gen
 
     return pure_api_gen._wait_video_same_conversation(
         dola=dola, session=None, ctx=None, headers=None,
@@ -127,7 +127,7 @@ def test_no_upstream_ack_gives_up_early(monkeypatch):
 
     账号由调用方（browser_pool）放进异常组，任务提示「生视频过程中出现异常情况，请重试」。
     """
-    import pure_api_gen
+    from dola_pool import pure_api_gen
 
     monkeypatch.setattr(pure_api_gen, "NO_ACK_SECONDS", 0)
     dola = FakeDola([FakePoll(status="pending", texts=["生成视频：一只橘猫在窗台上打盹"])])
@@ -168,7 +168,7 @@ def test_short_duration_never_splits():
 
 def test_same_clip_multiple_renditions_are_one_segment():
     """同一支片的 1080p/720p 是两条 url 但只有一个 vid：不能当成两段去拼接。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
 
     poll = FakePoll(vids=["v1"], urls=["http://cdn/1080.mp4", "http://cdn/720.mp4"], texts=[CAP_TEXT])
 
@@ -177,7 +177,7 @@ def test_same_clip_multiple_renditions_are_one_segment():
 
 def test_native_30s_clip_returns_without_split():
     """上游直接给 30.042 秒成片时，跳过拆段协商（此前会被拼成 60 秒）。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
 
     poll = FakePoll(status="duration_split", vids=["v1"], urls=["http://cdn/1080.mp4", "http://cdn/720.mp4"], texts=[CAP_TEXT])
     poll.source_data = {"video_info": [{"video_id": "v1", "video_duration": 30.042}]}
@@ -192,7 +192,7 @@ def test_native_30s_clip_returns_without_split():
 
 
 def test_clip_seconds_reads_video_duration():
-    import pure_api_gen
+    from dola_pool import pure_api_gen
 
     class _Poll:
         source_data = {"video_info": [{"video_duration": 15.04}]}
@@ -204,7 +204,7 @@ def test_clip_seconds_reads_video_duration():
 
 def test_credit_tracker_reads_used_and_left_without_double_counting():
     """上游回执「将消耗 2 个…今日剩余 2 个」：链路每条轮询整段返回，不能重复累加。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
 
     seen: list[tuple[int, str]] = []
     tracker = pure_api_gen._CreditTracker(lambda bal, src="": seen.append((bal, src)))
@@ -223,7 +223,7 @@ def test_credit_tracker_reads_used_and_left_without_double_counting():
 
 
 def test_credit_tracker_absorb_sums_parts():
-    import pure_api_gen
+    from dola_pool import pure_api_gen
 
     main = pure_api_gen._CreditTracker()
     main.note(["本次使用 Dreamina Seedance 2.5 生成，将消耗 2 个视频生成额度，今日剩余 2 个视频生成额度。"])
@@ -237,7 +237,7 @@ def test_credit_tracker_absorb_sums_parts():
 
 def test_clip_is_short_detects_half_length():
     """30 秒请求只拿到 15 秒 → 视为短视频（默认不拼接，换号重试）。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
 
     assert pure_api_gen.clip_is_short(15.0, 30) is True
     assert pure_api_gen.clip_is_short(10.0, 10) is False
@@ -247,6 +247,6 @@ def test_clip_is_short_detects_half_length():
 
 def test_short_clip_error_is_pure_api_error():
     """ShortClipError 必须能被 PureApiError 捕获（调用方按可重试失败处理）。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
 
     assert issubclass(pure_api_gen.ShortClipError, pure_api_gen.PureApiError)

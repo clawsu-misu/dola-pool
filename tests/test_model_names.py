@@ -27,7 +27,7 @@ def _stubs():
         setattr(v, exc, type(exc, (Exception,), {}))
     v.generate_video = _no
     v.resume_video = _no
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
@@ -40,7 +40,7 @@ def _run(coro):
 
 
 def test_models_list_uses_fast_name():
-    import server
+    from dola_pool import server
     ids = [m["id"] for m in _run(server.list_models())["data"]]
     assert "seedance-2.0-fast" in ids and "seedance-2.5" in ids
     assert "seedance-2.0" not in ids                    # 旧名不再列出
@@ -48,7 +48,7 @@ def test_models_list_uses_fast_name():
 
 
 def test_old_name_is_alias_and_public_name_is_fast():
-    import server
+    from dola_pool import server
     for name in ("seedance-2.0", "seedance-2.0-fast", "seedance_v2.0", "Seedance-2.0-Fast"):
         assert server._resolve_model_for_duration(name, 10) == "seedance-2.0"
         assert server._public_model(server._resolve_model_for_duration(name, 10)) == "seedance-2.0-fast"
@@ -58,7 +58,7 @@ def test_old_name_is_alias_and_public_name_is_fast():
 
 
 def test_pool_cost_and_routing_accept_fast_name():
-    import browser_pool
-    import pure_api_gen
+    from dola_pool import browser_pool
+    from dola_pool import pure_api_gen
     assert browser_pool.duration_cost("seedance-2.0-fast", 10) == browser_pool.duration_cost("seedance-2.0", 10)
     assert pure_api_gen._map_model("seedance-2.0-fast", 10) == "seedance_v2.0"

@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import dola_responder as r
-from generation_errors import UpstreamReplyError
+from dola_pool import dola_responder as r
+from dola_pool.generation_errors import UpstreamReplyError
 from test_ai_dialogue import bounded_gen, decision, stub_ai
 from test_dola_responder import FakeResp, FakeSession
 from test_doubao import FREE_ACCEPTED, _FakeDP, _pool, _run, _stubs
@@ -20,7 +20,7 @@ def settings_reset():
 
 @pytest.mark.parametrize('model', ['seedance_v2.0_mini', 'seedance_v2.0', 'seedance_v2.0_std', 'seedance_v2.5'])
 def test_doubao_video_ability_includes_resolution_for_original_and_followup(model):
-    from protocol import doubao_site
+    from dola_pool.protocol import doubao_site
     dp = doubao_site.load()
     for conv in ('', 'original-conversation'):
         payload, _, _ = dp.build_payload([], '清晨湖面', {'fp':'test'}, 10, model, '16:9', conversation_id=conv)
@@ -32,7 +32,7 @@ def test_doubao_video_ability_includes_resolution_for_original_and_followup(mode
 
 
 def test_doubao_native_video_payload_includes_current_web_creation_routing_fields():
-    from protocol import dola_pure_api, doubao_site
+    from dola_pool.protocol import dola_pure_api, doubao_site
 
     dp = doubao_site.load()
     payload, _, _ = dp.build_payload([], '一只猫微笑', {'fp':'test'}, 10,
@@ -123,7 +123,7 @@ def test_plain_assistant_reports_route_failure_without_claiming_quota_or_plan(tm
     with pytest.raises(UpstreamReplyError) as caught:
         bounded_gen(monkeypatch,tmp_path,dp)
     assert caught.value.category == '视频技能未生效'
-    from generation_errors import VideoSkillUnavailableError
+    from dola_pool.generation_errors import VideoSkillUnavailableError
     assert isinstance(caught.value, VideoSkillUnavailableError)
     assert caught.value.generation_started is False
     assert not calls and not dp.replies and not dp.downloaded
@@ -145,7 +145,7 @@ def test_plain_assistant_reply_stops_dispatch_without_disabling_the_account(tmp_
 
 
 def test_readonly_recovery_ends_plain_chat_but_keeps_genuine_generation_pending(tmp_path,monkeypatch):
-    import doubao_gen as g
+    from dola_pool import doubao_gen as g
     state=tmp_path/'cookie_state.json'
     state.write_text(json.dumps({'cookies':{'sessionid':{'value':'test'}}}),encoding='utf-8')
     dp=_FakeDP([(0,'当前套餐不可用于创作使用。',[],{'agent_name':'豆包'})])
@@ -167,7 +167,7 @@ def test_readonly_recovery_ends_plain_chat_but_keeps_genuine_generation_pending(
     '\ufffd'*25,
 ])
 def test_corrupted_client_prompt_is_rejected_before_any_task_or_account_access(prompt):
-    import server
+    from dola_pool import server
     with pytest.raises(server.HTTPException) as caught:
         _run(server._submit_task({},'doubao-seedance-2.5',prompt,None,10,[]))
     assert caught.value.status_code==422 and 'UTF-8' in caught.value.detail
@@ -176,5 +176,5 @@ def test_corrupted_client_prompt_is_rejected_before_any_task_or_account_access(p
 @pytest.mark.parametrize('prompt',['test','一只白鹭贴着水面起飞','What happens next? A bird flies away.',
                                   '人物问：“你去哪儿？”然后转身。','屏幕显示??????这六个问号，随后画面切换到海边'])
 def test_valid_prompts_and_normal_questions_keep_their_text(prompt):
-    import server
+    from dola_pool import server
     assert server._check_prompt_encoding(prompt) is None

@@ -1,5 +1,5 @@
 """prepare_upload 的 scene_id 按站点区分：dola "4"，豆包 "5"（豆包用 "4" 会回 710010703，参考图传不上）。"""
-from protocol import dola_pure_api, doubao_site
+from dola_pool.protocol import dola_pure_api, doubao_site
 
 
 def _body(module, monkeypatch):

@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import socks_relay
+from dola_pool import socks_relay
 
 
 def _start_servers(user=b"u1", pwd=b"p@ss"):
@@ -120,8 +120,8 @@ def test_relay_authenticates_and_tunnels():
 def test_browser_proxy_kwargs_use_relay_for_socks5_auth(monkeypatch):
     import importlib
     # 别的用例会往 sys.modules 里塞一个假的 browser 模块：这里临时换成真模块，结束后自动还原
-    monkeypatch.delitem(sys.modules, "browser", raising=False)
-    browser = importlib.import_module("browser")
+    monkeypatch.delitem(sys.modules, "dola_pool.browser", raising=False)
+    browser = importlib.import_module("dola_pool.browser")
     socks_port, _e, _s = _start_servers()
     kw = browser._kwargs_from_url(f"socks5://u1:p%40ss@127.0.0.1:{socks_port}")
     assert kw["server"].startswith("http://127.0.0.1:")

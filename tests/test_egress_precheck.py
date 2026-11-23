@@ -109,7 +109,7 @@ def test_doubao_precheck_uses_its_own_site_and_failure_blocks_dispatch(tmp_path,
 
 @pytest.mark.parametrize("transport", ["requests_proxy", "http_proxy"])
 def test_transport_rejects_missing_and_unusable_bound_routes(monkeypatch, transport):
-    import account_transport as t
+    from dola_pool import account_transport as t
     monkeypatch.setattr(t.config, "ISOLATE_SHARED_EGRESS", True)
     monkeypatch.setattr(t.proxy_store, "get_account_proxy", lambda name: None)
     with pytest.raises(RuntimeError, match="禁止直连"):
@@ -125,14 +125,15 @@ def test_transport_rejects_missing_and_unusable_bound_routes(monkeypatch, transp
 
 
 def test_bound_socks_requests_resolve_dns_remotely(monkeypatch):
-    import account_transport as t
+    from dola_pool import account_transport as t
     monkeypatch.setattr(t.proxy_store, "get_account_proxy", lambda name: {"mode": "static"})
     monkeypatch.setattr(t.proxy_store, "account_proxy_url", lambda name: "socks5://proxy.invalid:1080")
     assert t.requests_proxy("acc1") == "socks5h://proxy.invalid:1080"
 
 
 def test_egress_alive_reads_relay_502_as_dead(monkeypatch):
-    import account_transport, requests
+    import requests
+    from dola_pool import account_transport
     monkeypatch.setattr(account_transport, "http_proxy", lambda account: "http://127.0.0.1:1")
     class Resp:
         def __init__(self, code): self.status_code = code
@@ -153,9 +154,9 @@ def test_egress_alive_reads_relay_502_as_dead(monkeypatch):
 def test_upload_failure_reports_relay_upstream_failures(monkeypatch):
     import asyncio
     import pytest
-    import socks_relay
+    from dola_pool import socks_relay
     from types import SimpleNamespace
-    from generation_errors import UploadRouteError
+    from dola_pool.generation_errors import UploadRouteError
     from test_task_ui_regressions import load_worker_function
     monkeypatch.setattr(socks_relay, "STATS", {"TimeoutError": 1})
     class Page:

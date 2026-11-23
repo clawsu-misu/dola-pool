@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 @pytest.fixture(autouse=True)
@@ -26,7 +26,7 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
     yield
 
@@ -40,7 +40,7 @@ def _run(coro):
 
 
 def _pool(tmp_path, monkeypatch, names=("acc1", "acc2")):
-    import browser_pool
+    from dola_pool import browser_pool
 
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     # 固定每日上限 4 点：别的用例会改全局 DAILY_LIMIT（test_db_lock_leak 设 99），

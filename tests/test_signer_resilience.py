@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-import pure_signer
+from dola_pool import pure_signer
 
 
 def _signer(monkeypatch) -> pure_signer.PersistentSigner:

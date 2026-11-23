@@ -5,14 +5,14 @@ import time
 import pytest
 from fastapi import HTTPException
 
-import cred_store
+from dola_pool import cred_store
 from test_account_throttle import _pool
 from test_task_deadline import _run
 
 
 @pytest.fixture
 def srv(tmp_path, monkeypatch):
-    import server
+    from dola_pool import server
     _, bp, _ = _pool(tmp_path, monkeypatch, {"acc1": "a"})
     monkeypatch.setattr(server, "pool", bp)
     monkeypatch.setattr(server, "_admin_auth", lambda key: None)
@@ -32,7 +32,7 @@ def test_delete_removes_the_leftovers(srv, monkeypatch):
     _failed(server, "acc63")
     cred_store.store("acc63", "x@example.test", "pw", "")
     forgot = []
-    monkeypatch.setattr(server.proxy_store if hasattr(server, "proxy_store") else __import__("proxy_store"),
+    monkeypatch.setattr(server.proxy_store if hasattr(server, "proxy_store") else __import__("dola_pool.proxy_store", fromlist=["proxy_store"]),
                         "forget_account", lambda name: forgot.append(name))
     assert _run(server.admin_add_job_delete("acc63", None)) == {"ok": True}
     assert forgot == ["acc63"] and cred_store.load("acc63") is None and "acc63" not in server.JOBS

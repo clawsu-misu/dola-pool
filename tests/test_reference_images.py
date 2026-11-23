@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-import pure_api_gen
+from dola_pool import pure_api_gen
 
 
 class Img:

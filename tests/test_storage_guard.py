@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-import config
-import store as store_mod
+from dola_pool import config
+from dola_pool import store as store_mod
 
 
 def _store(tmp_path) -> store_mod.TaskStore:
@@ -96,13 +96,13 @@ def test_prune_downloads_drops_oldest(tmp_path, monkeypatch):
         setattr(v, exc, type(exc, (Exception,), {}))
     v.generate_video = _no_playwright
     v.resume_video = _no_playwright
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "tasks.db"))
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     monkeypatch.setattr(config, "DOWNLOAD_DIR", str(tmp_path / "downloads"))
     monkeypatch.setattr(config, "DOWNLOAD_MAX_BYTES", 1000)
-    import server
+    from dola_pool import server
 
     root = Path(config.DOWNLOAD_DIR)
     root.mkdir(parents=True, exist_ok=True)

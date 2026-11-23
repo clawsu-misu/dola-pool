@@ -14,7 +14,7 @@ def poll_messages(messages):
     node = shutil.which('node')
     if not node:
         pytest.skip('node required')
-    tree = ast.parse((ROOT / 'video_worker.py').read_text(encoding='utf-8'))
+    tree = ast.parse((ROOT / 'dola_pool' / 'video_worker.py').read_text(encoding='utf-8'))
     code = next(ast.literal_eval(n.value) for n in tree.body
                 if isinstance(n, ast.Assign)
                 and any(isinstance(t, ast.Name) and t.id == 'POLL_JS' for t in n.targets))

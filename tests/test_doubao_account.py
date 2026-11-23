@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-import doubao_account as account_kind
+from dola_pool import doubao_account as account_kind
 
 
 @pytest.mark.parametrize(
@@ -57,7 +57,7 @@ def test_invalid_classification_does_not_overwrite_state(tmp_path):
 
 def test_login_verification_cross_checks_official_mode_config(tmp_path, monkeypatch):
     from types import SimpleNamespace
-    import doubao_gen
+    from dola_pool import doubao_gen
 
     path = tmp_path / "cookie_state.json"
     path.write_text(json.dumps({"cookies_list": [

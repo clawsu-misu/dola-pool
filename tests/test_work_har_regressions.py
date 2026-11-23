@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-import work_reply
+from dola_pool import work_reply
 from test_task_deadline import _run
 from test_work_session import Page, bot, load_agent
 from test_work_session import send_session, PROMPT
@@ -54,7 +54,7 @@ class ThreadPage(Page):
 
 
 def test_cta_limit_wins_over_completed_tool_card_and_unfinished_message(monkeypatch):
-    from doubao_gen import DoubaoQuotaError, quota_recover_at
+    from dola_pool.doubao_gen import DoubaoQuotaError, quota_recover_at
 
     page = Page([creation(5, reason="cta_limit", text=QUOTA_REPLY)])
     _, session = item(monkeypatch, page)
@@ -65,7 +65,7 @@ def test_cta_limit_wins_over_completed_tool_card_and_unfinished_message(monkeypa
 
 
 def test_metadata_only_quota_refusal_does_not_wait_for_text(monkeypatch):
-    from doubao_gen import DoubaoQuotaError
+    from dola_pool.doubao_gen import DoubaoQuotaError
 
     _, session = item(monkeypatch, Page([]))
     failure = session.creation_failure(creation(5, reason="cta_limit")["messages"])
@@ -87,7 +87,7 @@ def test_backend_thread_video_is_delivered_while_parent_still_says_running(monke
 
 
 def test_backend_thread_quota_refusal_ends_a_running_parent(monkeypatch):
-    from doubao_gen import DoubaoQuotaError
+    from dola_pool.doubao_gen import DoubaoQuotaError
 
     page = ThreadPage([{"status": 200, "text": json.dumps(creation(5, reason="cta_limit", text=QUOTA_REPLY))}])
     _, session = item(monkeypatch, page)
@@ -106,7 +106,7 @@ def test_temporary_thread_read_failure_keeps_waiting_without_a_new_submission(mo
 
 
 def test_readonly_recovery_observes_thread_quota_failure_without_reply(monkeypatch):
-    from doubao_gen import DoubaoQuotaError
+    from dola_pool.doubao_gen import DoubaoQuotaError
 
     page = ThreadPage([{"status": 200, "text": json.dumps(creation(5, reason="cta_limit", text=QUOTA_REPLY))}])
     agent, session = item(monkeypatch, page)

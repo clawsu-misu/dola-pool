@@ -7,9 +7,9 @@ from types import SimpleNamespace
 import pytest
 import requests
 
-import config
-import doubao_gen as g
-from generation_errors import UpstreamReplyError, VideoSkillUnavailableError, WorkVideoMismatchError
+from dola_pool import config
+from dola_pool import doubao_gen as g
+from dola_pool.generation_errors import UpstreamReplyError, VideoSkillUnavailableError, WorkVideoMismatchError
 from test_doubao import FREE_ACCEPTED, _FakeDP, _gen, _pool, _run, _stubs
 
 
@@ -26,7 +26,7 @@ def no_network(monkeypatch):
 
 
 def test_cookie_fingerprint_and_saved_device_survive_new_sessions_without_cross_site_leak(tmp_path):
-    from protocol import dola_pure_api as dola, doubao_site
+    from dola_pool.protocol import dola_pure_api as dola, doubao_site
     db = doubao_site.load()
     state = tmp_path / "state.json"
     state.write_text(json.dumps({"cookies_list": [
@@ -53,7 +53,7 @@ def test_cookie_fingerprint_and_saved_device_survive_new_sessions_without_cross_
 
 
 def test_bootstrap_uses_official_identity_and_preserves_imported_state(tmp_path, monkeypatch):
-    from protocol import doubao_site
+    from dola_pool.protocol import doubao_site
     dp = doubao_site.load()
     state = tmp_path / "state.json"
     original = {"cookies_list": [{"name": "sessionid", "value": "test", "domain": ".doubao.com"},
@@ -84,7 +84,7 @@ def test_bootstrap_uses_official_identity_and_preserves_imported_state(tmp_path,
 
 @pytest.mark.parametrize("code,error", [(710012001, g.PureLoginExpired), (710022002, g.PureApiError)])
 def test_bootstrap_failure_closes_session_and_does_not_expose_response(tmp_path, monkeypatch, code, error):
-    from protocol import doubao_site
+    from dola_pool.protocol import doubao_site
     dp = doubao_site.load()
     closed = []
     session = SimpleNamespace(close=lambda: closed.append(True))
@@ -216,7 +216,7 @@ def test_recovery_rechecks_reference_and_ratio_without_sending(tmp_path, monkeyp
 
 
 def test_mismatching_clip_is_charged_once_and_retained_without_switch(tmp_path, monkeypatch):
-    import browser_pool
+    from dola_pool import browser_pool
     _, pool = _pool(tmp_path, monkeypatch, dola=(), doubao=("db1", "db2"))
     for name in pool.accounts:
         pool.set_source(name, "cookie")
@@ -300,7 +300,7 @@ def test_unbound_account_does_not_block_another_account_with_a_valid_bound_proxy
 
 @pytest.mark.parametrize("failure", ["network", "http"])
 def test_doubao_submission_does_not_repeat_an_ambiguous_request(monkeypatch, failure):
-    from protocol import doubao_site
+    from dola_pool.protocol import doubao_site
     dp = doubao_site.load()
     calls, closed = [], []
     monkeypatch.setattr(dp, "fetch_recent_conversations", lambda *args: {})

@@ -49,8 +49,8 @@ const dialogText=(parts,...values)=>parts.reduce((s,p,i)=>s+p+(values[i]||''),''
 
 
 def test_internal_upload_timeout_keeps_reason_and_note(tmp_path, monkeypatch):
-    import server
-    import store
+    from dola_pool import server
+    from dola_pool import store
     monkeypatch.setattr(server, "store", store.TaskStore(str(tmp_path / "tasks.db")))
     monkeypatch.setattr(server, "_maybe_start_recovery", lambda *a: False)
     class Pool:
@@ -68,8 +68,8 @@ def test_internal_upload_timeout_keeps_reason_and_note(tmp_path, monkeypatch):
 
 
 def test_outer_timeout_still_stops_task(tmp_path, monkeypatch):
-    import server
-    import store
+    from dola_pool import server
+    from dola_pool import store
     monkeypatch.setattr(server, "store", store.TaskStore(str(tmp_path / "tasks.db")))
     monkeypatch.setattr(server, "_maybe_start_recovery", lambda *a: False)
     real_timeout = asyncio.timeout
@@ -86,7 +86,7 @@ def test_outer_timeout_still_stops_task(tmp_path, monkeypatch):
 
 
 def test_poll_reports_upstream_note_before_quota_error():
-    from browser_feedback import emit
+    from dola_pool.browser_feedback import emit
     notes = []
     progress_notes = []
     def on_poll(now, note=None, progress=None):
@@ -111,7 +111,7 @@ def test_poll_reports_upstream_note_before_quota_error():
 
 
 def test_poll_reports_download_progress_before_awaiting_download(tmp_path):
-    from browser_feedback import emit
+    from dola_pool.browser_feedback import emit
     progress_notes, notes = [], []
     output = tmp_path / 'video.mp4'
     output.write_bytes(b'video')
@@ -145,8 +145,8 @@ def test_poll_reports_download_progress_before_awaiting_download(tmp_path):
 
 @pytest.mark.parametrize('account_test', [False, True])
 def test_completed_tasks_clear_progress_and_preserve_upstream_reply(tmp_path, monkeypatch, account_test):
-    import server
-    import store
+    from dola_pool import server
+    from dola_pool import store
     task_id = 'progress_test'
     monkeypatch.setattr(server, 'store', store.TaskStore(str(tmp_path / 'tasks.db')))
     monkeypatch.setattr(server, 'TEST_JOBS', {task_id: {}})
@@ -179,7 +179,7 @@ def test_completed_tasks_clear_progress_and_preserve_upstream_reply(tmp_path, mo
 
 
 def load_worker_function(name, **bindings):
-    tree = ast.parse((ROOT / "video_worker_ui.py").read_text(encoding="utf-8"))
+    tree = ast.parse((ROOT / "dola_pool" / "video_worker_ui.py").read_text(encoding="utf-8"))
     fn = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == name)
     scope = {"asyncio": asyncio, "time": time, **bindings}
     exec(compile(ast.Module(body=[fn], type_ignores=[]), "worker-test", "exec"), scope)
@@ -222,7 +222,7 @@ def test_apply_upload_network_failure_preserves_stage_and_redacts_url():
     page = Page()
     with pytest.raises(TimeoutError) as error:
         run(load_worker_function("attach_reference_images")(page, ["synthetic.png"]))
-    from generation_errors import PreSubmissionUploadError
+    from dola_pool.generation_errors import PreSubmissionUploadError
     assert isinstance(error.value, PreSubmissionUploadError)
     assert "ApplyImageUpload" in str(error.value) and "net::ERR_EMPTY_RESPONSE" in str(error.value)
     assert "PRIVATE" not in str(error.value) and "token" not in str(error.value)
@@ -260,7 +260,7 @@ def test_upload_options_is_not_counted_as_a_file_upload():
 
 
 def test_browser_assistant_reply_reaches_task_callback():
-    from browser_feedback import BrowserReplies
+    from dola_pool.browser_feedback import BrowserReplies
     notes = []
     class Page:
         def on(self, *a): pass
@@ -282,5 +282,5 @@ def test_browser_assistant_reply_reaches_task_callback():
     ("seedance-2.5", 30, 2), ("seedance-2.5", 10, 4), ("seedance-2.5", 5, 2),
     ("seedance-2.0-fast", 5, 2), ("seedance-2.0-fast", 10, 4), ("seedance-2.0-fast", 15, 4)])
 def test_confirmed_costs(model, duration, cost):
-    import config
+    from dola_pool import config
     assert config.credit_cost(model, duration) == cost

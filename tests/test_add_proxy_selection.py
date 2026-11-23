@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import account_proxy_selection as selection
+from dola_pool import account_proxy_selection as selection
 
 
 def run(coro):
@@ -38,9 +38,9 @@ def test_empty_node_pool_cannot_fall_back_to_default(monkeypatch):
 
 @pytest.mark.parametrize("proxy_id", ["p1", None])
 def test_cookie_first_probe_uses_selected_proxy(tmp_path, monkeypatch, proxy_id):
-    import account_transport
-    import config
-    import cookie_login
+    from dola_pool import account_transport
+    from dola_pool import config
+    from dola_pool import cookie_login
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(config, "COOKIE_RUNTIME", "pure")
     monkeypatch.setattr(cookie_login, "browser_backend_available", lambda: (False, "test"))
@@ -53,16 +53,16 @@ def test_cookie_first_probe_uses_selected_proxy(tmp_path, monkeypatch, proxy_id)
         assert Path(state).exists()
         events.append(("probe", proxy))
         return True, ""
-    monkeypatch.setitem(sys.modules, "doubao_gen", SimpleNamespace(probe_login=probe))
+    monkeypatch.setitem(sys.modules, "dola_pool.doubao_gen", SimpleNamespace(probe_login=probe))
     bundle = {"cookies": [{"name": "sessionid", "value": "test-only", "domain": ".doubao.com"}]}
     result = run(cookie_login.import_cookie_account("acc1", bundle, proxy_id=proxy_id))
     assert result["verified"] and events[-1] == ("probe", expected_proxy)
 
 
 def test_cookie_verification_without_bound_proxy_cannot_bypass_isolation(tmp_path, monkeypatch):
-    import account_transport
-    import config
-    import cookie_login
+    from dola_pool import account_transport
+    from dola_pool import config
+    from dola_pool import cookie_login
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(config, "COOKIE_RUNTIME", "pure")
     monkeypatch.setattr(config, "ISOLATE_SHARED_EGRESS", True)
@@ -70,7 +70,7 @@ def test_cookie_verification_without_bound_proxy_cannot_bypass_isolation(tmp_pat
     monkeypatch.setattr(account_transport.proxy_store, "get_account_proxy", lambda name: None)
     def forbidden(*args, **kwargs):
         pytest.fail("缺绑定代理时不得请求登录验证接口")
-    monkeypatch.setitem(sys.modules, "doubao_gen", SimpleNamespace(probe_login=forbidden))
+    monkeypatch.setitem(sys.modules, "dola_pool.doubao_gen", SimpleNamespace(probe_login=forbidden))
     result = run(cookie_login.import_cookie_account("acc1", {"cookies": [
         {"name": "sessionid", "value": "test-only", "domain": ".doubao.com"}]}))
     assert not result["verified"] and "禁止直连" in result["verify_error"]
@@ -78,7 +78,7 @@ def test_cookie_verification_without_bound_proxy_cannot_bypass_isolation(tmp_pat
 
 
 def test_batch_round_robin_skips_existing_cookie(monkeypatch):
-    import cookie_login
+    from dola_pool import cookie_login
     monkeypatch.setattr(selection, "validate_proxy_ids", lambda ids: ids)
     assignments = []
     async def fake_import(name, data, **kwargs):
@@ -96,7 +96,7 @@ def test_batch_round_robin_skips_existing_cookie(monkeypatch):
 
 
 def test_google_binding_precedes_login(monkeypatch):
-    import server
+    from dola_pool import server
     events = []
     monkeypatch.setattr(server, "ADD_ACCOUNT_SEM", asyncio.Semaphore(1))
     monkeypatch.setattr(server, "JOBS", {})
@@ -114,7 +114,7 @@ def test_google_binding_precedes_login(monkeypatch):
 
 
 def test_single_cookie_job_passes_proxy_to_import(monkeypatch):
-    import server
+    from dola_pool import server
     seen = []
     async def fake_import(name, data, **kwargs):
         seen.append(kwargs)

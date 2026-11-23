@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-import upscale
+from dola_pool import upscale
 from test_task_deadline import _run
 
 
@@ -196,9 +196,9 @@ def test_missing_config_blocks_submit():
 
 @pytest.fixture
 def srv(tmp_path, monkeypatch):
-    import config
-    import server
-    from store import TaskStore
+    from dola_pool import config
+    from dola_pool import server
+    from dola_pool.store import TaskStore
     monkeypatch.setattr(server, "store", TaskStore(str(tmp_path / "tasks.db")))
     monkeypatch.setattr(config, "DOWNLOAD_DIR", str(tmp_path))
     monkeypatch.setattr(config, "PUBLIC_BASE", "https://pool.example")
@@ -308,8 +308,8 @@ def test_start_is_refused_until_the_provider_is_configured(srv):
 
 
 def test_source_url_uses_the_fresh_upstream_link_or_rejects_a_local_base(srv, monkeypatch):
-    import config
-    import video_link
+    from dola_pool import config
+    from dola_pool import video_link
     async def fresh(row, store): return "https://cdn.dola/fresh.mp4"
     monkeypatch.setattr(video_link, "current_link", fresh)
     assert _run(srv._upscale_source({"video_link": "old"})) == "https://cdn.dola/fresh.mp4"

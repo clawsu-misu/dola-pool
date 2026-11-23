@@ -1,6 +1,6 @@
 """浏览器参考图上传：字节图片上传服务器直连，其余流量仍走账号代理。"""
-import browser
-import config
+from dola_pool import browser
+from dola_pool import config
 
 
 def test_bypass_added_to_account_proxy(monkeypatch):

@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import dola_responder as r
-from generation_errors import UpstreamReplyError
+from dola_pool import dola_responder as r
+from dola_pool.generation_errors import UpstreamReplyError
 from test_task_deadline import _run
 from test_start_confirm import _poll, _stall_run, UNKNOWN_Q
 
@@ -110,8 +110,8 @@ def test_poll_uses_ai_first_and_does_not_repeat_the_same_reply(monkeypatch):
 
 
 def test_settings_endpoint_masks_the_key_and_keeps_it(tmp_path, monkeypatch):
-    import server
-    from store import TaskStore
+    from dola_pool import server
+    from dola_pool.store import TaskStore
     monkeypatch.setattr(server, 'store', TaskStore(str(tmp_path / 'tasks.db')))
     monkeypatch.setattr(server, '_admin_auth', lambda key: None)
     saved = _run(server.admin_responder_settings_save(server.ResponderPatch(
@@ -142,8 +142,8 @@ def test_ai_reply_detail_explains_failures_and_strips_thinking():
 
 def test_test_endpoint_uses_the_unsaved_form_values(tmp_path, monkeypatch):
     # 2026-11-01：填完直接点「测试」报「未开启或配置不全」——测试读的是已保存的空设置
-    import server
-    from store import TaskStore
+    from dola_pool import server
+    from dola_pool.store import TaskStore
     monkeypatch.setattr(server, 'store', TaskStore(str(tmp_path / 'tasks.db')))
     monkeypatch.setattr(server, '_admin_auth', lambda key: None)
     seen = {}
@@ -181,7 +181,7 @@ def test_list_models_reads_v1_models_and_explains_failures():
 
 
 def test_models_endpoint_uses_form_values(tmp_path, monkeypatch):
-    import server
+    from dola_pool import server
     monkeypatch.setattr(server, '_admin_auth', lambda key: None)
     seen = {}
     async def fake_list(settings, **kw):

@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 def _stubs():
@@ -25,8 +25,8 @@ def _stubs():
 
 
 _stubs()
-import pure_api_gen  # noqa: E402
-from protocol import dola_pure_api  # noqa: E402
+from dola_pool import pure_api_gen  # noqa: E402
+from dola_pool.protocol import dola_pure_api  # noqa: E402
 
 REAL_ACK = [
     "视频生成目前支持 4 到 15 秒。我按你指定的 9:16 比例生成 5 秒版本。",
@@ -141,6 +141,6 @@ def test_plus_upsell_alone_is_not_quota_exhausted():
 
 def test_quota_exceeded_failure_marks_account_daily_limited():
     """纯 API 报 quota_exceeded → 号池归为 daily（进冷却到额度重置，并立即换号）。"""
-    import browser_pool
+    from dola_pool import browser_pool
     msg = f"acc3 出片未成功 status=quota_exceeded: {QUOTA_GONE}"
     assert browser_pool.classify_upstream_failure(msg) == "daily"

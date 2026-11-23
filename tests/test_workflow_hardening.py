@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from generation_errors import UpstreamReplyError, UploadRouteError
-from upstream_reply import duration_reply, reply_failure, QUOTA_RE
+from dola_pool.generation_errors import UpstreamReplyError, UploadRouteError
+from dola_pool.upstream_reply import duration_reply, reply_failure, QUOTA_RE
 from test_task_deadline import _pool, _run
 from test_task_ui_regressions import load_worker_function
 
@@ -48,7 +48,7 @@ def test_duration_question_requires_matching_option():
 
 
 def test_latest_refusal_beats_old_acceptance_and_never_types():
-    from browser_feedback import emit
+    from dola_pool.browser_feedback import emit
     latest = '肖像保護のため生成できません。'
     notes = []
     class Context:
@@ -193,8 +193,8 @@ def test_acknowledgement_stops_preparation_clock(tmp_path, monkeypatch):
 
 
 def test_attempt_records_keep_failure_after_next_progress(tmp_path, monkeypatch):
-    import server
-    from store import TaskStore
+    from dola_pool import server
+    from dola_pool.store import TaskStore
     monkeypatch.setattr(server, 'store', TaskStore(str(tmp_path/'tasks.db')))
     monkeypatch.setattr(server, '_maybe_start_recovery', lambda *a: False)
     class Pool:
@@ -217,7 +217,7 @@ def test_attempt_records_keep_failure_after_next_progress(tmp_path, monkeypatch)
 
 
 def test_strict_missing_proxy_never_direct(monkeypatch):
-    import account_transport as transport
+    from dola_pool import account_transport as transport
     monkeypatch.setattr(transport.config, 'ISOLATE_SHARED_EGRESS', True)
     monkeypatch.setattr(transport.proxy_store, 'get_account_proxy', lambda a: None)
     with pytest.raises(RuntimeError, match='禁止直连'):
@@ -225,7 +225,7 @@ def test_strict_missing_proxy_never_direct(monkeypatch):
 
 
 def test_socks_media_transport_uses_relay(monkeypatch):
-    import account_transport as transport
+    from dola_pool import account_transport as transport
     monkeypatch.setattr(transport.proxy_store, 'get_account_proxy', lambda a: {'mode':'static'})
     monkeypatch.setattr(transport.proxy_store, 'account_proxy_url', lambda a: 'socks5://private:secret@proxy:1080')
     monkeypatch.setattr(transport.socks_relay, 'local_http_proxy_for', lambda url: 'http://127.0.0.1:1234')
@@ -247,7 +247,7 @@ def _high_bitrate_fn(session_cls):
 
 def test_high_bitrate_failure_retries_same_proxy_never_direct(monkeypatch, capsys):
     import json
-    import account_transport
+    from dola_pool import account_transport
     calls=[]
     class Session:
         async def __aenter__(self): return self
@@ -265,7 +265,7 @@ def test_high_bitrate_failure_retries_same_proxy_never_direct(monkeypatch, capsy
 
 def test_high_bitrate_second_attempt_succeeds(monkeypatch, capsys):
     import json
-    import account_transport
+    from dola_pool import account_transport
     class Resp:
         def __init__(self, status): self.status = status
         async def __aenter__(self): return self
@@ -283,7 +283,7 @@ def test_high_bitrate_second_attempt_succeeds(monkeypatch, capsys):
 
 
 def test_http_poll_failures_do_not_wait_until_generation_timeout():
-    from browser_feedback import emit
+    from dola_pool.browser_feedback import emit
     class Context:
         async def cookies(self,*a): return []
     class Page:
@@ -302,7 +302,7 @@ def test_http_poll_failures_do_not_wait_until_generation_timeout():
 def test_failed_download_removes_partial_file_and_never_resubmits(tmp_path, monkeypatch):
     import ast
     from pathlib import Path
-    import account_transport
+    from dola_pool import account_transport
     monkeypatch.setattr(account_transport,'http_proxy',lambda a:'http://bound-proxy')
     class Response:
         content=None
@@ -321,7 +321,7 @@ def test_failed_download_removes_partial_file_and_never_resubmits(tmp_path, monk
             assert kw['proxy']=='http://bound-proxy'
             return response
     root=Path(__file__).resolve().parents[1]
-    node=next(n for n in ast.parse((root/'video_worker.py').read_text(encoding='utf8')).body
+    node=next(n for n in ast.parse((root/'dola_pool'/'video_worker.py').read_text(encoding='utf8')).body
               if isinstance(n,ast.AsyncFunctionDef) and n.name=='_download')
     scope={'Path':Path,'asyncio':asyncio,'time':time,'config':SimpleNamespace(DOWNLOAD_DIR=str(tmp_path)),
            'aiohttp':SimpleNamespace(ClientSession=Session,ClientTimeout=lambda **k:None)}
@@ -333,7 +333,7 @@ def test_failed_download_removes_partial_file_and_never_resubmits(tmp_path, monk
 
 
 def test_relogin_keeps_account_locked_and_shows_verifying(tmp_path,monkeypatch):
-    import server
+    from dola_pool import server
     _,bp=_pool(tmp_path,monkeypatch)
     monkeypatch.setattr(server,'pool',bp)
     monkeypatch.setattr(server,'ADD_ACCOUNT_SEM',asyncio.Semaphore(1))

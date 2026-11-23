@@ -11,8 +11,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
-import sites
+from dola_pool import config
+from dola_pool import sites
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +27,7 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
@@ -68,8 +68,8 @@ def test_image_models_and_ratio_mapping():
 
 
 def test_payload_hook_matches_web_request():
-    import image_gen
-    from protocol import dola_pure_api as dp
+    from dola_pool import image_gen
+    from dola_pool.protocol import dola_pure_api as dp
     payload, _, _ = dp.build_payload([], "一只猫", {"fp": "x"}, 5, "", None, video_ability=False)
     image_gen.image_payload_hook("一只猫", "Seedream 5.0 Pro", "16:9")(payload)
     text = payload["messages"][-1]["content_block"][0]["content"]["text_block"]["text"]
@@ -90,7 +90,7 @@ def test_payload_hook_matches_web_request():
 
 
 def test_find_images_skips_placeholders_and_dedupes():
-    import image_gen
+    from dola_pool import image_gen
     events = [{"data": {"patch_op": [{"patch_value": {"content_block": [_creation("a", final=False)]}}]}},
               {"data": {"patch_op": [{"patch_value": {"content_block": [_creation("a"), _creation("b")]}}]}},
               {"data": {"patch_op": [{"patch_value": {"content_block": [_creation("a")]}}]}}]
@@ -136,8 +136,8 @@ class _FakeDP:
 
 
 def _patch(monkeypatch, tmp_path, dp, *, no_watermark=True):
-    import image_gen
-    import doubao_gen
+    from dola_pool import image_gen
+    from dola_pool import doubao_gen
     state = tmp_path / "cookie_state.json"
     state.write_text(json.dumps({"cookies": {"sessionid": {"value": "s", "domain": ".doubao.com"}}}))
     monkeypatch.setattr(image_gen, "_site_module", lambda site: dp)
@@ -157,7 +157,7 @@ def _patch(monkeypatch, tmp_path, dp, *, no_watermark=True):
 
 
 def test_doubao_image_uses_official_clean_url(monkeypatch, tmp_path):
-    import image_gen
+    from dola_pool import image_gen
     dp = _FakeDP([{"content_block": [_creation("k1")]}])
     state, got = _patch(monkeypatch, tmp_path, dp)
     res = image_gen.generate_image(account="d1", prompt="狐狸", model="doubao-seedream-5.0-flash",
@@ -168,7 +168,7 @@ def test_doubao_image_uses_official_clean_url(monkeypatch, tmp_path):
 
 
 def test_clean_url_failure_falls_back_to_official_download(monkeypatch, tmp_path):
-    import image_gen
+    from dola_pool import image_gen
     dp = _FakeDP([{"content_block": [_creation("a"), _creation("b")]}])
     state, got = _patch(monkeypatch, tmp_path, dp)
 
@@ -184,13 +184,13 @@ def test_clean_url_failure_falls_back_to_official_download(monkeypatch, tmp_path
 
 
 def test_non_doubao_site_rejected():
-    import image_gen
+    from dola_pool import image_gen
     with pytest.raises(image_gen.PureApiError):
         image_gen._site_module("dola")
 
 
 def test_no_image_with_reply_is_refusal(monkeypatch, tmp_path):
-    import image_gen
+    from dola_pool import image_gen
     dp = _FakeDP([], reply="这个请求涉及真实人物，无法生成")
     state, _ = _patch(monkeypatch, tmp_path, dp)
     with pytest.raises(image_gen.ImageRefusedError):
@@ -199,7 +199,7 @@ def test_no_image_with_reply_is_refusal(monkeypatch, tmp_path):
 
 
 def _pool(tmp_path, monkeypatch, dola=("acc1",), doubao=("db1", "db2")):
-    import browser_pool
+    from dola_pool import browser_pool
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     monkeypatch.setattr(config, "PURE_API_ENABLED", True)
     accounts_dir = tmp_path / "accounts"
@@ -220,7 +220,7 @@ def _pool(tmp_path, monkeypatch, dola=("acc1",), doubao=("db1", "db2")):
 
 
 def test_pool_routes_image_by_site_and_retries(tmp_path, monkeypatch):
-    import image_gen
+    from dola_pool import image_gen
     bp = _pool(tmp_path, monkeypatch)
     calls = []
 

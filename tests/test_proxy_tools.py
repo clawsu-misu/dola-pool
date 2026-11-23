@@ -5,13 +5,13 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-import proxy_store
+from dola_pool import proxy_store
 
 
 @pytest.fixture
 def api(tmp_path, monkeypatch):
-    import server
-    from browser_pool import BrowserPool
+    from dola_pool import server
+    from dola_pool.browser_pool import BrowserPool
     monkeypatch.setattr(proxy_store, 'DB_PATH', tmp_path / 'proxy.db')
     monkeypatch.setattr(server, 'ADMIN_SESSIONS', {'test-token': {'username': 'admin', 'expires_at': time.time()+600}})
     monkeypatch.setattr(server, 'user_get', lambda _: {'enabled': True})

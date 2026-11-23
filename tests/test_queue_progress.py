@@ -7,8 +7,8 @@ import types
 
 import pytest
 
-import config
-import store as store_mod
+from dola_pool import config
+from dola_pool import store as store_mod
 
 
 def test_queue_progress_counts_ahead_and_running(tmp_path, monkeypatch):
@@ -52,9 +52,9 @@ def test_progress_payload_messages(tmp_path, monkeypatch):
         setattr(v, exc, type(exc, (Exception,), {}))
     v.generate_video = _no_playwright
     v.resume_video = _no_playwright
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
-    import server
+    from dola_pool import server
 
     queued = server._progress_payload(status="queued", created_at=time.time(), duration=10)
     assert queued["state"] == "queued"
@@ -74,7 +74,7 @@ def test_progress_payload_messages(tmp_path, monkeypatch):
 
 
 def test_eta_text_rounding():
-    import server  # noqa: WPS433
+    from dola_pool import server  # noqa: WPS433
 
     assert server._eta_text(30) == "不到 1 分钟"
     assert server._eta_text(120) == "约 2 分钟"

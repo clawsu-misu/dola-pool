@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +34,7 @@ def _stubs():
         setattr(v, exc, type(exc, (Exception,), {}))
     v.generate_video = _no
     v.resume_video = _no
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
@@ -74,8 +74,8 @@ class FakePool:
 
 
 def _server(tmp_path, monkeypatch, pool, conversation="conv48", account="acc48", duration=30):
-    import server as server_mod
-    import store as store_mod
+    from dola_pool import server as server_mod
+    from dola_pool import store as store_mod
     monkeypatch.setattr(config, "DOWNLOAD_DIR", str(tmp_path / "dl"))
     monkeypatch.setattr(config, "PUBLIC_BASE", "https://example.com")
     monkeypatch.setattr(config, "RECOVER_TIMEOUT_SECONDS", 600)
@@ -169,7 +169,7 @@ def test_watch_hands_over_to_background_recovery_at_deadline(tmp_path, monkeypat
 
 def test_30s_first_segment_timeout_is_a_wait_timeout(tmp_path, monkeypatch):
     """30 秒第 1 段等到上限 dola 还没出片：抛 TimeoutError（号池不换号重提，服务端转后台取回）。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
 
     class D:
         BASE = "https://www.dola.com"
@@ -195,5 +195,5 @@ def test_30s_first_segment_timeout_is_a_wait_timeout(tmp_path, monkeypatch):
             dola=D(), session=None, ctx={}, headers={}, account="acc48", prompt="p", ratio=None,
             model="seedance_v2.5", output_path=tmp_path / "o.mp4", remove_watermark=False, proxy="",
             timeout=10800, poll_interval=0)
-    import server
+    from dola_pool import server
     assert server._is_wait_timeout(TimeoutError("x"))

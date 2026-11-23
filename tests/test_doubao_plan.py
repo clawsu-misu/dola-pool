@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import config
+from dola_pool import config
 from test_doubao import CONFIRM, FREE_ACCEPTED, PAID, _FakeDP, _gen, _pool, _run, _stubs
 
 DENIED = "当前免费体验套餐不可用于创作使用，可升级正式订阅，畅享创作。"
@@ -21,13 +21,13 @@ DENIED = "当前免费体验套餐不可用于创作使用，可升级正式订�
     ('当前套餐支持创作，可生成15秒视频。', False),
 ])
 def test_plan_denial_is_separate_from_acceptance_and_quota(text, expected):
-    from doubao_gen import looks_like_plan_unavailable
+    from dola_pool.doubao_gen import looks_like_plan_unavailable
     assert looks_like_plan_unavailable(text) is expected
 
 
 @pytest.mark.parametrize('confirmed', [False, True])
 def test_generation_stops_on_plan_denial_without_additional_confirmation(tmp_path, monkeypatch, confirmed):
-    import doubao_gen
+    from dola_pool import doubao_gen
     script = [(0, CONFIRM, []), (1, DENIED, [])] if confirmed else [(0, DENIED, [])]
     dp = _FakeDP(script)
     with pytest.raises(doubao_gen.DoubaoPlanUnavailableError, match=DENIED):
@@ -37,7 +37,7 @@ def test_generation_stops_on_plan_denial_without_additional_confirmation(tmp_pat
 
 
 def test_plan_denial_wins_over_an_acceptance_phrase(tmp_path, monkeypatch):
-    import doubao_gen
+    from dola_pool import doubao_gen
     dp = _FakeDP([(0, FREE_ACCEPTED + DENIED, [])])
     with pytest.raises(doubao_gen.DoubaoPlanUnavailableError):
         _gen(monkeypatch, tmp_path, dp)
@@ -45,7 +45,7 @@ def test_plan_denial_wins_over_an_acceptance_phrase(tmp_path, monkeypatch):
 
 
 def test_dispatch_pauses_denied_account_and_uses_another(tmp_path, monkeypatch):
-    import doubao_gen
+    from dola_pool import doubao_gen
     browser_pool, pool = _pool(tmp_path, monkeypatch)
     calls = []
     async def generate(account, *args, **kwargs):
@@ -63,7 +63,7 @@ def test_dispatch_pauses_denied_account_and_uses_another(tmp_path, monkeypatch):
 
 
 def test_all_plan_denied_fails_fast_and_next_task_skips_the_account(tmp_path, monkeypatch):
-    import doubao_gen
+    from dola_pool import doubao_gen
     _, pool = _pool(tmp_path, monkeypatch, doubao=('db1',))
     calls = []
     async def generate(account, *args, **kwargs):
@@ -78,7 +78,7 @@ def test_all_plan_denied_fails_fast_and_next_task_skips_the_account(tmp_path, mo
 
 
 def test_fixed_account_test_marks_plan_failure_without_recovery(tmp_path, monkeypatch):
-    import doubao_gen
+    from dola_pool import doubao_gen
     browser_pool, pool = _pool(tmp_path, monkeypatch, doubao=('db1',))
     async def generate(*args, **kwargs):
         raise doubao_gen.DoubaoPlanUnavailableError(DENIED)
@@ -91,7 +91,7 @@ def test_fixed_account_test_marks_plan_failure_without_recovery(tmp_path, monkey
 
 @pytest.mark.parametrize('video,finished', [(False, True), (False, False), (True, True)])
 def test_recovery_reads_final_denial_or_existing_video_without_reply(tmp_path, monkeypatch, video, finished):
-    import doubao_gen
+    from dola_pool import doubao_gen
     dp = _FakeDP([(0, DENIED, [])], vid_after=0 if video else None)
     original_fetch = dp.fetch_single_chain
     def fetch(*args):
@@ -126,6 +126,6 @@ def test_recovery_service_ends_watch_and_pauses_plan_denied_account(tmp_path, mo
 
 
 def test_failure_label_preserves_the_plan_denial():
-    import failure_text
+    from dola_pool import failure_text
     assert failure_text.label_for(DENIED) == '套餐权限'
     assert DENIED in failure_text.summarize(DENIED)

@@ -17,7 +17,7 @@ def _load_config(env_file, extra_env):
     env.update(extra_env)
     if env_file:
         env["DOLA_ENV_FILE"] = str(env_file)
-    code = "import json, config; print(json.dumps({'proxy': config.PROXY, 'port': config.PORT}))"
+    code = "import json, dola_pool.config as config; print(json.dumps({'proxy': config.PROXY, 'port': config.PORT}))"
     r = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout.strip().splitlines()[-1])
@@ -43,7 +43,8 @@ def test_without_env_file_default_unchanged():
 
 def test_explicit_env_file_overrides_local_defaults(tmp_path):
     # An isolated config copy avoids touching the developer's own .env.local.
-    (tmp_path / "config.py").write_bytes((ROOT / "config.py").read_bytes())
+    (tmp_path / "dola_pool").mkdir()
+    (tmp_path / "dola_pool" / "config.py").write_bytes((ROOT / "dola_pool" / "config.py").read_bytes())
     (tmp_path / ".env.local").write_text(
         "DOLA_PROXY=http://127.0.0.1:7890\nDOLA_PORT=8100\nDOLA_MAX_PENDING_TASKS=17\n",
         encoding="utf-8")
@@ -51,7 +52,7 @@ def test_explicit_env_file_overrides_local_defaults(tmp_path):
     explicit.write_text("DOLA_PROXY=\nDOLA_PORT=9200\n", encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if not k.startswith("DOLA_")}
     env["DOLA_ENV_FILE"] = str(explicit)
-    code = "import config,json; print(json.dumps([config.PROXY, config.PORT, config.MAX_PENDING_TASKS]))"
+    code = "import json, dola_pool.config as config; print(json.dumps([config.PROXY, config.PORT, config.MAX_PENDING_TASKS]))"
     def read():
         r = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=env,
                            capture_output=True, text=True, check=True)

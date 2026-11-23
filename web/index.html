@@ -1688,7 +1688,7 @@ async function openUpscaleSettings(){
         <input id="upEndpoint" type="url" placeholder="https://your-gpu-service.example" value="${esc(c.open_endpoint||'')}">
         <label for="upToken">访问令牌（可选）</label>
         <input id="upToken" type="password" autocomplete="off" placeholder="${c.open_token_set?`已保存 ${c.open_token_hint}，留空不修改`:'服务要求时填写'}">
-        <p class="hint">接口约定和部署示例见 <a href="https://github.com/Roins-hub/dola-pool/blob/main/UPSCALE.md#自建开源超分服务" target="_blank" rel="noopener">UPSCALE.md ↗</a>（Real-ESRGAN 等开源模型）。</p>
+        <p class="hint">接口约定和部署示例见 <a href="https://github.com/Roins-hub/dola-pool/blob/main/docs/UPSCALE.md#自建开源超分服务" target="_blank" rel="noopener">UPSCALE.md ↗</a>（Real-ESRGAN 等开源模型）。</p>
       </div>
       <div id="upCustom">
         <p class="hint">任意「提交 → 轮询」或「同步返回」的 JSON 接口。可先填入现成模板再改：
@@ -1751,7 +1751,7 @@ function upscaleProviderView(){
 /** 现成模板对应服务商的「获取 Key / 接入文档」链接；名称对不上模板时显示通用接入说明 */
 function customLinks(presets,name){
   const p=Object.values(presets||{}).find(x=>x.custom_name===name);
-  const doc='<a href="https://github.com/Roins-hub/dola-pool/blob/main/UPSCALE.md#自定义-api" target="_blank" rel="noopener">填写说明 ↗</a>';
+  const doc='<a href="https://github.com/Roins-hub/dola-pool/blob/main/docs/UPSCALE.md#自定义-api" target="_blank" rel="noopener">填写说明 ↗</a>';
   if(!p)return doc;
   return (p.key_url?`<a href="${esc(p.key_url)}" target="_blank" rel="noopener">获取 Key ↗</a> · `:'')
     +(p.docs_url?`<a href="${esc(p.docs_url)}" target="_blank" rel="noopener">接口文档 ↗</a> · `:'')+doc;
@@ -2721,7 +2721,7 @@ async function submitSetAccountProxy(name){
   hide('dlg');refresh();
 }
 
-/** 「怎么获取 Cookie？」折叠说明（完整版见仓库 COOKIE.md）。 */
+/** 「怎么获取 Cookie？」折叠说明（完整版见仓库 docs/COOKIE.md）。 */
 function cookieHowto(){
   return `<details style="margin-top:8px;font-size:12px;color:var(--sub)">
     <summary style="cursor:pointer;color:var(--text)">怎么获取 Cookie？</summary>

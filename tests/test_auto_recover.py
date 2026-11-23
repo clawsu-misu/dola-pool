@@ -18,7 +18,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 @pytest.fixture(autouse=True)
@@ -37,7 +37,7 @@ def _stubs():
         setattr(v, exc, type(exc, (Exception,), {}))
     v.generate_video = _no
     v.resume_video = _no
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
@@ -83,7 +83,7 @@ class FakeDola:
 
 
 def _fetch(tmp_path, monkeypatch, result):
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     fake = FakeDola(result)
     monkeypatch.setattr(pure_api_gen, "_dola", lambda: fake)
     state = tmp_path / "cookie_state.json"
@@ -138,8 +138,8 @@ class FakePool:
 
 
 def _server(tmp_path, monkeypatch, pool):
-    import server as server_mod
-    import store as store_mod
+    from dola_pool import server as server_mod
+    from dola_pool import store as store_mod
     monkeypatch.setattr(config, "DOWNLOAD_DIR", str(tmp_path / "dl"))
     monkeypatch.setattr(config, "PUBLIC_BASE", "https://example.com")
     monkeypatch.setattr(config, "RECOVER_TIMEOUT_SECONDS", 600)

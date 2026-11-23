@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 @pytest.fixture(autouse=True)
@@ -39,7 +39,7 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
@@ -74,7 +74,7 @@ def test_duration_costs_env_override_parsing():
 
 
 def test_duration_cost_model_names_and_pair(monkeypatch):
-    import browser_pool
+    from dola_pool import browser_pool
     assert browser_pool.duration_cost("seedance_v2.5", 10) == 4
     assert browser_pool.duration_cost("seedance-2.0", 10) == 4
     assert browser_pool.duration_cost("???", 5) == config.DEFAULT_CREDIT_COST    # 认不出 → 保守
@@ -85,7 +85,7 @@ def test_duration_cost_model_names_and_pair(monkeypatch):
 # ---------------------------------------------------------------- 受理：付不起的组合直接拒
 
 def test_unaffordable_rejected_at_submit():
-    import server
+    from dola_pool import server
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc:
         server._reject_unaffordable("seedance-2.5", 15)        # 12 点 > 每日 4 点
@@ -98,7 +98,7 @@ def test_unaffordable_rejected_at_submit():
 @pytest.mark.parametrize("model", ["seedance-2.0", "seedance-2.0-fast", "seedance_v2.0"])
 def test_work_mode_30s_is_not_priced_against_daily_quota(monkeypatch, model):
     """2.0 的 30 秒走两段工作模式（每号 7 天 1 条），不扣每日点数，不能按 8 点的报价拒掉。"""
-    import server
+    from dola_pool import server
     monkeypatch.setattr(config, "WORK_15S_ENABLED", True)
     server._reject_unaffordable(model, 30)
     server._reject_unaffordable(model, "30")
@@ -108,7 +108,7 @@ def test_work_mode_30s_is_not_priced_against_daily_quota(monkeypatch, model):
 @pytest.mark.parametrize("model", ["seedance-2.0", "seedance-2.0-fast"])
 def test_work_mode_30s_passes_every_submit_check(monkeypatch, model):
     """受理时依次走的三道检查（_submit_task 里的顺序），开着工作模式都要放行 2.0 的 30 秒。"""
-    import server
+    from dola_pool import server
     monkeypatch.setattr(config, "V20_DURATIONS", config.V20_DURATIONS)
     monkeypatch.setattr(config, "WORK_15S_ENABLED", config.WORK_15S_ENABLED)
     monkeypatch.setattr(config, "LONG_VIDEO_MODE", "reject")
@@ -120,8 +120,8 @@ def test_work_mode_30s_passes_every_submit_check(monkeypatch, model):
 
 
 def test_30s_without_work_mode_is_still_rejected(monkeypatch):
-    import browser_pool
-    import server
+    from dola_pool import browser_pool
+    from dola_pool import server
     from fastapi import HTTPException
     monkeypatch.setattr(config, "WORK_15S_ENABLED", False)
     monkeypatch.setattr(config, "LONG_VIDEO_MODE", "reject")
@@ -137,7 +137,7 @@ def test_30s_without_work_mode_is_still_rejected(monkeypatch):
 # ---------------------------------------------------------------- 号池
 
 def _pool(tmp_path, monkeypatch, names=("acc1", "acc2")):
-    import browser_pool
+    from dola_pool import browser_pool
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     monkeypatch.setattr(config, "DAILY_LIMIT", 4)
     monkeypatch.setattr(browser_pool, "DAILY_LIMIT", 4)
@@ -216,14 +216,14 @@ def test_quote_refusal_with_almost_nothing_left_blocks(tmp_path, monkeypatch):
 
 
 def test_parse_quota_quote():
-    import browser_pool
+    from dola_pool import browser_pool
     assert browser_pool.parse_quota_quote(
         "本次视频生成需要消耗 12 个视频生成额度，今日剩余 4 个视频生成额度") == (12, 4)
     assert browser_pool.parse_quota_quote("视频生成失败") is None
 
 
 def test_part_hints_never_mention_30_seconds():
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     assert all("30" not in h for h in pure_api_gen.PART_HINTS)
 
 
@@ -290,7 +290,7 @@ def test_expensive_job_can_use_half_account_with_enough_balance(tmp_path, monkey
 
 def test_v20_start_threshold_is_any_remaining_credit():
     """2.0：先 5 秒再 10 秒两条都出（acc38）→ 剩 2 点的号也能接 10 秒；2.5 仍按报价卡。"""
-    import browser_pool
+    from dola_pool import browser_pool
     assert config.start_cost("seedance-2.0-fast", 10) == 2
     assert config.start_cost("seedance-2.0", 5) == 2
     assert config.start_cost("seedance-2.5", 10) == 4

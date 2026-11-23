@@ -5,8 +5,8 @@ from pathlib import Path
 
 from PIL import Image
 
-import config
-from media import delete_reference_thumbnails, save_reference_thumbnails, thumb_file
+from dola_pool import config
+from dola_pool.media import delete_reference_thumbnails, save_reference_thumbnails, thumb_file
 
 
 def _make(path: Path, size=(800, 400)) -> Path:

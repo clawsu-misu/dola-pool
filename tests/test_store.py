@@ -1,7 +1,7 @@
 """TaskStore 的认领/恢复语义验证（api-pool job store 移植）。"""
 from __future__ import annotations
 
-from store import TaskStore
+from dola_pool.store import TaskStore
 
 
 def _job(store: TaskStore, job_id: str, account: str | None = None, status: str = "queued",

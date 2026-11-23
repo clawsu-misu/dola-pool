@@ -22,7 +22,7 @@
 
 **交流群**：扫右侧二维码加群。
 
-**第一次用？** 先看 [`USAGE.md`](USAGE.md)：从零到出第一条视频，以及管理面板每个按钮的作用。加号前看 [`COOKIE.md`](COOKIE.md)，里面讲怎么导出账号 Cookie。
+**第一次用？** 先看 [`USAGE.md`](docs/USAGE.md)：从零到出第一条视频，以及管理面板每个按钮的作用。加号前看 [`COOKIE.md`](docs/COOKIE.md)，里面讲怎么导出账号 Cookie。
 
 <br clear="right">
 
@@ -61,12 +61,12 @@ docker compose up -d
 - Windows 双击 `start-local.bat`；
 - macOS / Linux 运行 `bash start-local.sh`。
 
-需要 Python 3.10+ 和 Node.js 18+。本机不在日本 / 韩国时要配代理，见 [`USAGE.md`](USAGE.md)。
+需要 Python 3.10+ 和 Node.js 18+。本机不在日本 / 韩国时要配代理，见 [`USAGE.md`](docs/USAGE.md)。
 
 <details>
 <summary><b>手动部署（源码 + systemd）</b></summary>
 
-dola.com 要求日本 / 韩国出口，服务器在大陆时必须配代理。静态 / 动态代理的配置与防风控建议见 [`PROXY.md`](PROXY.md)。
+dola.com 要求日本 / 韩国出口，服务器在大陆时必须配代理。静态 / 动态代理的配置与防风控建议见 [`PROXY.md`](docs/PROXY.md)。
 
 ```bash
 git clone https://github.com/Roins-hub/dola-pool.git && cd dola-pool
@@ -78,7 +78,7 @@ export DOLA_API_KEYS=sk-your-key                      # 对外 API Key，逗号�
 export DOLA_ADMIN_KEY=change-me                       # 管理面板密钥
 export DOLA_PROXY=http://user:pass@jp-proxy:port
 export DOLA_PUBLIC_BASE=https://your-domain           # 生成 video_url 用的对外地址
-uvicorn server:app --host 127.0.0.1 --port 8002       # 只监听本机，由 nginx 对外
+uvicorn dola_pool.server:app --host 127.0.0.1 --port 8002       # 只监听本机，由 nginx 对外
 ```
 
 用 systemd 常驻：把环境变量写进 `/opt/dola-pool/dola.env`，再建 `/etc/systemd/system/dola-pool.service`：
@@ -92,7 +92,7 @@ After=network.target
 User=ubuntu
 WorkingDirectory=/opt/dola-pool
 EnvironmentFile=/opt/dola-pool/dola.env
-ExecStart=/opt/dola-pool/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8002
+ExecStart=/opt/dola-pool/.venv/bin/uvicorn dola_pool.server:app --host 127.0.0.1 --port 8002
 Restart=always
 RestartSec=5
 
@@ -123,7 +123,7 @@ curl -o out.mp4 https://your-domain/v1/videos/video_xxx/content -H "Authorizatio
 - **参考图**：用 `reference_images`、`image_url`、`image`、`input_image(s)` 任一字段传公网 URL 或 Base64，单张最大 20 MiB。
 - **时长**：认 `duration`、`seconds`、`duration_seconds`。
 - **比例**：以请求参数为准。提示词里写了别的比例时，会注明以参数为准。
-- **分辨率**：可带 `resolution`（`720p` / `1080p` / `2k` / `4k`）。后台开启自动超分时，出片后超分到该档位，见 [UPSCALE.md](UPSCALE.md)。
+- **分辨率**：可带 `resolution`（`720p` / `1080p` / `2k` / `4k`）。后台开启自动超分时，出片后超分到该档位，见 [UPSCALE.md](docs/UPSCALE.md)。
 - **参考图来源说明**：带参考图的任务，默认附加一句「参考图为 AI 生成素材」（`DOLA_DEFAULT_REFERENCE_SOURCE=ai_generated`）。不需要时传 `"reference_source": "unspecified"`。这只是如实说明素材来源，不保证通过上游审核。
 
 豆包号的视频把模型换成 `doubao-seedance-*` 即可。生图只接豆包号，同步返回：
@@ -138,7 +138,7 @@ curl -X POST https://your-domain/v1/images/edits -H "Authorization: Bearer sk-yo
   -F model=doubao-seedream-5.0-flash -F prompt="把猫的胡子去掉" -F image=@cat.jpg
 ```
 
-字段、错误码和管理接口见 [`API.md`](API.md)。
+字段、错误码和管理接口见 [`API.md`](docs/API.md)。
 
 ## 支持的模型
 
@@ -186,7 +186,7 @@ curl -X POST https://your-domain/v1/images/edits -H "Authorization: Bearer sk-yo
 - **参数确认**：豆包先回「请先确认参数」，号池核对时长、模型都对才确认，对不上不确认、直接报错。
 - **水印**：「AI 生成」明水印是按号的设置。`DOUBAO_AUTO_NO_WATERMARK=1`（默认）时，号池用官方设置接口替号关掉，再走官方无水印下载。内容公开发布时，需由发布方自行标注「AI 生成」。
 - **比例**：视频比例支持 `16:9 / 9:16 / 1:1 / 4:3 / 3:4 / 21:9`。生图比例从提示词文字里读，号池会按格式自动写进去。
-- **出口与导入方式**：境外服务器可直接用，不需要日韩代理。只支持 Cookie 导入，见 [COOKIE.md](COOKIE.md)。
+- **出口与导入方式**：境外服务器可直接用，不需要日韩代理。只支持 Cookie 导入，见 [COOKIE.md](docs/COOKIE.md)。
 - **插件官方名**：new-api Doubao 插件的官方名（如 `doubao-seedance-2-0-260128`）不是豆包号模型，照旧走 dola。
 
 </details>
@@ -265,7 +265,7 @@ DOLA_MIN_SUBMIT_INTERVAL_SECONDS=15
 - **隔离范围**：这是浏览器资料隔离，不是每号一台虚拟机；不同代理记录也不保证不同公网 IP。
 - **不支持的场景**：官方 Docker 镜像本身不含 CloakBrowser，需要按上面的方式自建；自建镜像不能使用面板一键更新。`DOLA_30S_MODE=pair` 只派给纯 API 号，严格隔离的号不参与（「2.0 的 15 秒」开启后的 30 秒拼接不受影响）。CloakBrowser 固定为 0.6.3，0.7 起需要授权码。
 
-完整步骤见 [`ISOLATION.md`](ISOLATION.md)。
+完整步骤见 [`ISOLATION.md`](docs/ISOLATION.md)。
 
 </details>
 
@@ -274,17 +274,11 @@ DOLA_MIN_SUBMIT_INTERVAL_SECONDS=15
 
 | 路径 | 作用 |
 |---|---|
-| `server.py` | FastAPI 服务：客户接口、Ark 兼容接口、管理接口、任务执行 |
-| `browser_pool.py` | 号池调度：选号、换号重试、时限、额度与冷却 |
-| `pool.py` / `store.py` / `user_store.py` | 账号池、任务存储（SQLite）、管理员 |
-| `proxy_store.py` | 静态 / 动态代理管理与轮换 |
-| `pure_api_gen.py` / `protocol/` | 纯 HTTP 出片协议（dola；豆包站点配置在 `protocol/doubao_site.py`） |
-| `doubao_gen.py` / `image_gen.py` | 豆包号出视频、生图 |
-| `browser.py` / `video_worker_ui.py` | 浏览器自动化出片路径 |
-| `upstream_reply.py` / `dola_responder.py` | dola 追问的自动回复与 AI 代答 |
-| `upscale.py` | 视频超分 |
-| `web/` | 管理面板前端；`web/i18n/` 为多语言，见 [`I18N.md`](I18N.md) |
+| `dola_pool/` | 服务包：server（FastAPI 服务）、browser_pool（号池调度）、pure_api_gen + protocol/（纯 HTTP 出片）、doubao_gen / image_gen（豆包）、browser + video_worker_ui（浏览器兜底）、store / proxy_store 等存储 |
+| `web/` | 管理面板前端；`web/i18n/` 为多语言，见 [`I18N.md`](docs/I18N.md) |
 | `deploy/` | 一键安装、一键更新脚本 |
+| `docs/` | 各专题文档（使用、接口、协议逆向记录等） |
+| `tools/` | 调试探针与登录工具（login、verify_login、diag_*） |
 | `Dockerfile` / `docker-compose.yml` / `docker/` | Docker 镜像与编排 |
 | `tests/` | pytest 测试：`pip install pytest && pytest -q tests` |
 
@@ -293,7 +287,7 @@ DOLA_MIN_SUBMIT_INTERVAL_SECONDS=15
 ## 注意事项
 
 - **Cookie 有效期**：账号 Cookie 约 60 天过期，失效的号会被自动标记，需重新导入。导入号池的号**不要在浏览器里点退出登录**，退出后 Cookie 会立刻失效。
-- **dola 水印**：号池下载的是 dola 返回数据里同一条视频的无水印版本（`lr=unwatermarked`），不对画面做处理。第三方解析接口默认关闭（`DOLA_PURE_REMOVE_WATERMARK=0`），原理与风险见 [`USAGE.md`](USAGE.md#7-去水印说明)。
+- **dola 水印**：号池下载的是 dola 返回数据里同一条视频的无水印版本（`lr=unwatermarked`），不对画面做处理。第三方解析接口默认关闭（`DOLA_PURE_REMOVE_WATERMARK=0`），原理与风险见 [`USAGE.md`](docs/USAGE.md#7-去水印说明)。
 - **凭据安全**：`accounts/`、`*.db`、`dola.env`、`cookies.txt`、`downloads/` 都已加入忽略列表，切勿提交真实凭据。
 
 ## 许可协议

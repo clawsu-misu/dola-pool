@@ -9,8 +9,8 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from cookie_export import account_bundle, build_export, CookieExportError
-from cookie_import import parse_cookie_header_text
+from dola_pool.cookie_export import account_bundle, build_export, CookieExportError
+from dola_pool.cookie_import import parse_cookie_header_text
 
 
 def save(root, name="acc1", domain=".doubao.com"):
@@ -82,7 +82,7 @@ def test_manifest_cannot_overwrite_account_named_like_report(tmp_path):
 
 
 def test_authenticated_download_and_selection_validation(tmp_path, monkeypatch):
-    import server
+    from dola_pool import server
     save(tmp_path)
     monkeypatch.setattr(server, "pool", SimpleNamespace(accounts=["acc1"], accounts_dir=tmp_path))
     monkeypatch.setattr(server, "ADMIN_SESSIONS", {"test-token": {

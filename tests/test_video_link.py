@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import video_link
+from dola_pool import video_link
 from test_task_deadline import _run
 
 SIGNED = "https://v16-dola.dola.com/0123456789abcdef0123456789abcdef/{:08x}/video/tos/mya/x/y/?a=1&lr=unwatermarked"
@@ -41,7 +41,7 @@ def _stub_worker(monkeypatch, new_url):
     async def fetch(vm, account):
         calls.append((vm, account))
         return new_url
-    monkeypatch.setitem(sys.modules, "video_worker_ui", types.SimpleNamespace(fetch_higher_bitrate_url=fetch))
+    monkeypatch.setitem(sys.modules, "dola_pool.video_worker_ui", types.SimpleNamespace(fetch_higher_bitrate_url=fetch))
     return calls
 
 
@@ -55,7 +55,7 @@ def test_fresh_link_is_served_as_is(monkeypatch):
 
 @pytest.mark.parametrize('reachable', [True, False])
 def test_model_delivery_uses_account_source_and_requires_client_reachability(monkeypatch, reachable):
-    import config
+    from dola_pool import config
     monkeypatch.setattr(config, 'VIDEO_DELIVERY', 'link')
     link = SIGNED.format(int(time.time()) + 3600)
     calls = _stub_worker(monkeypatch, link)
@@ -71,7 +71,7 @@ def test_model_delivery_uses_account_source_and_requires_client_reachability(mon
 
 
 def test_download_setting_skips_direct_source_requests(monkeypatch):
-    import config
+    from dola_pool import config
     monkeypatch.setattr(config, 'VIDEO_DELIVERY', 'download')
     calls = _stub_worker(monkeypatch, 'unused')
     assert _run(video_link.from_model(VIDEO_MODEL, 'doubao-account', 'conv')) is None
@@ -98,8 +98,8 @@ def test_failed_re_sign_keeps_serving_the_old_link(monkeypatch):
 
 
 def test_short_link_route_redirects_without_proxying(tmp_path, monkeypatch):
-    import server
-    from store import TaskStore
+    from dola_pool import server
+    from dola_pool.store import TaskStore
     from fastapi.testclient import TestClient
     monkeypatch.setattr(server, "store", TaskStore(str(tmp_path / "tasks.db")))
     link = SIGNED.format(int(time.time()) + 5 * 3600)
@@ -117,9 +117,9 @@ def test_short_link_route_redirects_without_proxying(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("method,status", [("GET", 206), ("HEAD", 206), ("GET", 416)])
 def test_relay_route_preserves_range_and_uses_the_account_proxy(tmp_path, monkeypatch, method, status):
-    import server
+    from dola_pool import server
     from fastapi.testclient import TestClient
-    monkeypatch.setattr(server, "store", __import__("store").TaskStore(str(tmp_path / "tasks.db")))
+    monkeypatch.setattr(server, "store", __import__("dola_pool.store", fromlist=["store"]).TaskStore(str(tmp_path / "tasks.db")))
     link = SIGNED.format(int(time.time()) + 5 * 3600)
     server.store.create("video_relay1", "doubao-seedance-2.0-fast", "p", "16:9", 15,
                         account="acc154")
@@ -174,7 +174,7 @@ def test_relay_route_preserves_range_and_uses_the_account_proxy(tmp_path, monkey
 
 
 def test_relay_stops_before_connecting_when_account_proxy_is_unavailable(monkeypatch):
-    import server
+    from dola_pool import server
     from fastapi import HTTPException
 
     def unavailable(_account):
@@ -191,9 +191,9 @@ def test_relay_stops_before_connecting_when_account_proxy_is_unavailable(monkeyp
 
 
 def test_link_delivery_returns_without_downloading(monkeypatch):
-    from browser_feedback import emit
+    from dola_pool.browser_feedback import emit
     from test_task_ui_regressions import load_worker_function
-    import config
+    from dola_pool import config
     monkeypatch.setattr(config, "VIDEO_DELIVERY", "link")
     link = SIGNED.format(int(time.time()) + 6 * 3600)
     monkeypatch.setattr(video_link, "probe_direct", lambda url: {"size": 123, "expires_at": video_link.link_expiry(url)})

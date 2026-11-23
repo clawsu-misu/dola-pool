@@ -3,8 +3,8 @@ import time
 
 import pytest
 
-import config
-from generation_errors import UpstreamGenerationFailed, UpstreamReplyError, portrait_refusal
+from dola_pool import config
+from dola_pool.generation_errors import UpstreamGenerationFailed, UpstreamReplyError, portrait_refusal
 from test_task_deadline import _pool, _run
 from test_start_confirm import _poll, _stall_run
 

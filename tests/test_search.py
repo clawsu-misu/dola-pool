@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import store as store_mod
+from dola_pool import store as store_mod
 
 
 def _store(tmp_path):

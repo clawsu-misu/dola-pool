@@ -1,8 +1,8 @@
 """Dola's own wait estimate is read from its reply (ja/zh/en) and reaches the task as upstream_wait."""
 import pytest
 
-from browser_feedback import emit
-from upstream_reply import wait_seconds_from_reply
+from dola_pool.browser_feedback import emit
+from dola_pool.upstream_reply import wait_seconds_from_reply
 
 
 @pytest.mark.parametrize('text,seconds', [

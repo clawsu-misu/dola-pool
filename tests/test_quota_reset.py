@@ -26,14 +26,14 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _resume
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
     yield
 
 
 def _pool(tmp_path):
-    import browser_pool
-    import config
+    from dola_pool import browser_pool
+    from dola_pool import config
 
     config.POOL_DB_PATH = str(tmp_path / "pool_usage.db")
     accounts_dir = tmp_path / "accounts"

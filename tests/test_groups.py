@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import browser_pool as bp
+from dola_pool import browser_pool as bp
 
 NOW = 1_700_000_000.0
 

@@ -20,7 +20,7 @@ def run(coro):
 @pytest.fixture
 def runtime(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location(
-        "browser_session_regression", Path(__file__).resolve().parents[1] / "browser.py")
+        "browser_session_regression", Path(__file__).resolve().parents[1] / "dola_pool" / "browser.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     monkeypatch.chdir(tmp_path)

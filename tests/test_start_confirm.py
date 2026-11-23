@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
-import pure_api_gen
-from generation_errors import UpstreamReplyError
+from dola_pool import pure_api_gen
+from dola_pool.generation_errors import UpstreamReplyError
 from test_task_deadline import _run
 from test_workflow_hardening import load_worker_function
-from upstream_reply import duration_reply, start_confirm_reply
+from dola_pool.upstream_reply import duration_reply, start_confirm_reply
 
 JA = ('この動画は 10 秒を指定されていますが、現在の動画生成は 4～15 秒に対応しています。'
       '直接生成を開始してよろしいですか？')
@@ -92,7 +92,7 @@ MISSING_REF = ('只ひとつ確認させてください：現在のところ動�
 
 def test_missing_reference_question_without_attachments_ends_after_generic_replies():
     """dola 说这一轮没有参照图：没有附件时不能答 A，先通用回复两次，仍在问才结束（不扣点）。"""
-    from upstream_reply import reply_failure
+    from dola_pool.upstream_reply import reply_failure
     assert reply_failure(MISSING_REF) == '需要补充信息'
     assert start_confirm_reply(MISSING_REF, 10) is None and duration_reply(MISSING_REF, 10) is None
     assert reply_failure('参照画像が提供されていませんので、テキストから動画を生成します。') is None
@@ -135,7 +135,7 @@ def _stall_run(polls, *, after=None, seconds=180, ratio=None, with_typed=False):
         async def wait_for_timeout(self, *a): pass
 
     async def no_wait(*a): pass
-    import config
+    from dola_pool import config
     old = config.STALL_REPLY_SECONDS
     config.STALL_REPLY_SECONDS = seconds
     try:
@@ -267,7 +267,7 @@ PROMPT_916 = '8K写实古风写真，9:16竖幅，蝶梦主题。女子穿淡粉
 
 def test_ratio_question_follows_the_client_parameter():
     """2026-11-01：参数 16:9、提示词 9:16。以客户端参数为准；参数没给有效比例才看提示词。"""
-    from upstream_reply import ratio_choice_reply, prompt_ratio
+    from dola_pool.upstream_reply import ratio_choice_reply, prompt_ratio
     assert ratio_choice_reply(RATIO_Q, PROMPT_916, '16:9') == 'B. 16:9'
     assert ratio_choice_reply(RATIO_Q, PROMPT_916, None) == 'A. 9:16'           # 没有参数：用提示词
     assert ratio_choice_reply(RATIO_Q, PROMPT_916, 'default') == 'A. 9:16'
@@ -320,7 +320,7 @@ def test_browser_poll_answers_the_ratio_question_and_keeps_waiting():
 
 def test_ratio_note_makes_the_parameter_win_only_on_conflict():
     """提示词写的比例和参数冲突时，在发给 dola 的文字末尾注明以参数为准；客户原文不改。"""
-    from prompt_context import ratio_note, dispatch_prompt
+    from dola_pool.prompt_context import ratio_note, dispatch_prompt
     note = ratio_note(PROMPT_916, '16:9')
     assert note == '【画面比例】以 16:9（横幅）为准，忽略上文中的其他比例描述。'
     assert ratio_note('竖屏人像', '16:9') and ratio_note('9:16 竖屏', '9:16') == ''
@@ -333,7 +333,7 @@ def test_ratio_note_makes_the_parameter_win_only_on_conflict():
 
 def test_ratio_not_listed_uses_the_other_option():
     """参数 21:9、提示词 9:16，dola 只列 9:16 / 16:9 / その他：选「その他」并写明 21:9。"""
-    from upstream_reply import ratio_choice_reply
+    from dola_pool.upstream_reply import ratio_choice_reply
     listed = RATIO_Q.replace('B. 16:9 横幅', 'B. 21:9 横幅')
     assert ratio_choice_reply(listed, PROMPT_916, '21:9') == 'B. 21:9'
     assert ratio_choice_reply(RATIO_Q, PROMPT_916, '21:9') == 'C. 21:9'

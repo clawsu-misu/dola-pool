@@ -1,6 +1,6 @@
 # 严格隔离镜像（CloakBrowser）的覆盖配置，和 docker-compose.yml 一起用：
 #   docker compose -f docker-compose.yml -f docker-compose.cloak.yml up -d --build
-# 镜像在本机构建，不在镜像仓库里，所以面板的一键更新不可用，更新方法见 ISOLATION.md。
+# 镜像在本机构建，不在镜像仓库里，所以面板的一键更新不可用，更新方法见 docs/ISOLATION.md。
 services:
   dola-pool:
     build:

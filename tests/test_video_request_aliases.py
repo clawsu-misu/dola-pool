@@ -36,17 +36,17 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _resume
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
     yield
 
 
 def _resolve(tmp_path, payload: dict) -> int:
-    import config
+    from dola_pool import config
 
     config.DB_PATH = str(tmp_path / "tasks.db")
     config.POOL_DB_PATH = str(tmp_path / "pool_usage.db")
-    import server
+    from dola_pool import server
 
     req = server.VideoGenRequest.model_validate(payload)
     return req.duration or req.seconds or req.duration_seconds or 10

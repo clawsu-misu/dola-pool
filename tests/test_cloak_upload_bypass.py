@@ -5,9 +5,9 @@
 """
 import pytest
 
-import config
-from browser import cloak_proxy_settings, proxy_kwargs_for
-from work_reply import upload_wait_seconds
+from dola_pool import config
+from dola_pool.browser import cloak_proxy_settings, proxy_kwargs_for
+from dola_pool.work_reply import upload_wait_seconds
 
 BYPASS = "*.bytevcloudapi.com,*.vodupload.com"
 
@@ -45,7 +45,7 @@ def test_bypass_switched_off_keeps_plain_url(monkeypatch):
 
 
 def test_same_bypass_as_patchright(monkeypatch):
-    import proxy_store
+    from dola_pool import proxy_store
     monkeypatch.setattr(proxy_store, "proxy_url_for", lambda account: "http://proxy.example:8080")
     assert proxy_kwargs_for("acc1")["bypass"] == cloak_proxy_settings("http://proxy.example:8080")["bypass"]
 

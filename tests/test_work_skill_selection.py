@@ -8,7 +8,7 @@ import pytest
 
 from test_task_deadline import _run
 from test_work_session import SkillPage, session, Target, PlaywrightLike
-from work_reply import video_skill_labels, video_skill_reference
+from dola_pool.work_reply import video_skill_labels, video_skill_reference
 
 
 def listing(label="Movie Studio"):
@@ -24,7 +24,7 @@ def test_stable_identity_resolves_a_completely_renamed_video_skill():
 
 
 def test_doubao_skill_reference_comes_from_the_accounts_authoritative_listing():
-    import sites
+    from dola_pool import sites
     data = {'skills': [{'name': 'video-analysis', 'display_name': '创意视频', 'external_skill_id': 'wrong', 'type': 2},
                        {'name': 'doubao-creative-video', 'display_name': '创意视频新版', 'external_skill_id': 'official-id', 'type': 2}]}
     reference = video_skill_reference(data, sites.DOUBAO)
@@ -35,7 +35,7 @@ def test_doubao_skill_reference_comes_from_the_accounts_authoritative_listing():
 
 
 def test_doubao_attaches_the_official_skill_through_the_live_editor(monkeypatch):
-    import sites
+    from dola_pool import sites
     page = SkillPage('创意视频')
     agent, item = session(monkeypatch, page)
     item.site = sites.DOUBAO
@@ -58,7 +58,7 @@ def test_doubao_attaches_the_official_skill_through_the_live_editor(monkeypatch)
 
 
 def test_filtered_skill_response_preserves_the_loaded_official_reference(monkeypatch):
-    import sites
+    from dola_pool import sites
 
     _, item = session(monkeypatch, SkillPage())
     item.site = sites.DOUBAO
@@ -72,7 +72,7 @@ def test_filtered_skill_response_preserves_the_loaded_official_reference(monkeyp
 
 @pytest.mark.parametrize('lost_selection', [False, True])
 def test_doubao_retries_skill_selection_when_the_editor_remounts(monkeypatch, lost_selection):
-    import sites
+    from dola_pool import sites
 
     page = SkillPage('创意视频')
     agent, item = session(monkeypatch, page)
@@ -102,7 +102,7 @@ def test_doubao_retries_skill_selection_when_the_editor_remounts(monkeypatch, lo
 
 
 def test_unavailable_editor_stops_after_three_attempts_before_sending(monkeypatch):
-    import sites
+    from dola_pool import sites
 
     page = SkillPage('创意视频')
     agent, item = session(monkeypatch, page)
@@ -178,7 +178,7 @@ assert.equal(stale.value, 'wrong draft');
 @pytest.mark.parametrize('code,success', [(0, True), (710022002, False)])
 def test_doubao_work_workspace_reads_its_skill_list_without_a_menu_button(monkeypatch, code, success):
     import json
-    import sites
+    from dola_pool import sites
     page = SkillPage('创意视频新版')
     agent, item = session(monkeypatch, page)
     item.site = sites.DOUBAO

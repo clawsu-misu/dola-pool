@@ -13,8 +13,8 @@ import time
 
 import pytest
 
-import config
-import proxy_store
+from dola_pool import config
+from dola_pool import proxy_store
 
 
 IPDEEP_BODY = (
@@ -318,9 +318,9 @@ def test_node_marked_dead_when_egress_unhealthy(tmp_path, monkeypatch):
 
     v.generate_video = _g
     v.resume_video = _r
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
-    import browser_pool
+    from dola_pool import browser_pool
     pid = _mk_extract()["id"]
     _stub_extract(monkeypatch)
     accounts_dir = tmp_path / "accounts" / "acc1"

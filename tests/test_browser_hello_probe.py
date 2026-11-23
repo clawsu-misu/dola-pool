@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import browser_hello_probe as probe
+from dola_pool import browser_hello_probe as probe
 
 
 def run(coro):
@@ -71,7 +71,7 @@ def fake_browser(monkeypatch):
         launches.append(account)
         return context
     async def logged_out(page): return False
-    monkeypatch.setitem(sys.modules, "browser", SimpleNamespace(
+    monkeypatch.setitem(sys.modules, "dola_pool.browser", SimpleNamespace(
         is_cloak_cookie_account=lambda _: True, launch_account_context=launch,
         cookie_value=lambda cookies, name: "synthetic", _page_logged_out=logged_out))
     monkeypatch.setitem(sys.modules, "patchright.async_api", SimpleNamespace(async_playwright=Playwright))
@@ -114,8 +114,8 @@ def test_cancel_releases_browser(fake_browser):
 
 
 def test_cloak_manual_probes_serialize_and_never_call_http(tmp_path, monkeypatch):
-    import browser_pool
-    import config
+    from dola_pool import browser_pool
+    from dola_pool import config
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     for name in ("acc1", "acc2"):
         (tmp_path / "accounts" / name).mkdir(parents=True)

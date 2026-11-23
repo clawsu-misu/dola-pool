@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 @pytest.fixture(autouse=True)
@@ -37,7 +37,7 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
@@ -50,7 +50,7 @@ def _run(coro):
 
 
 def _pool(tmp_path, monkeypatch, names=("acc1", "acc2")):
-    import browser_pool
+    from dola_pool import browser_pool
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     monkeypatch.setattr(config, "DAILY_LIMIT", 4)
     monkeypatch.setattr(browser_pool, "DAILY_LIMIT", 4)
@@ -111,7 +111,7 @@ def test_probe_rejection_reports_dola_words(tmp_path, monkeypatch):
 
 def test_queue_note_does_not_reset_queue_clock(tmp_path):
     """看门狗按 updated_at 算排队时长：写排队原因不能把它刷新。"""
-    import store as store_mod
+    from dola_pool import store as store_mod
     st = store_mod.TaskStore(str(tmp_path / "tasks.db"))
     st.create("t1", "seedance-2.5", "p", None, 5)
     before = st.get("t1")["updated_at"]
@@ -123,7 +123,7 @@ def test_queue_note_does_not_reset_queue_clock(tmp_path):
 
 def test_progress_text_is_not_labelled_as_dola():
     """号池自己的进度说明走 progress=（面板「⏳」行），不当成 dola 原话、不挤掉 dola 的回复。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     got = {}
 
     def on_poll(now, note=None, wait_seconds=None, progress=None):

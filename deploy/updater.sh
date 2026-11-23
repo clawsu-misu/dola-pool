@@ -57,7 +57,13 @@ PY
 }
 
 app_version(){
-  grep -oE '^APP_VERSION = "[0-9]+\.[0-9]+\.[0-9]+"' "$1/server.py" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'
+  # 兼容两种布局：新（dola_pool/server.py）优先，旧（根目录 server.py）兜底
+  local f
+  for f in "$1/dola_pool/server.py" "$1/server.py"; do
+    [ -f "$f" ] || continue
+    grep -oE '^APP_VERSION = "[0-9]+\.[0-9]+\.[0-9]+"' "$f" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' && return 0
+  done
+  return 1
 }
 
 health_version(){
@@ -131,6 +137,11 @@ fetch_tarball(){
   tar -C "$WORK/src" --exclude=.git --exclude=.venv --exclude=.browsers --exclude=accounts --exclude='*.db' \
       --exclude=downloads --exclude=thumbs --exclude=refs --exclude=update --exclude=dola.env --exclude=cred.key \
       -cf - . | as_user tar -C "$APP_DIR" -xf - || return 1
+  # 覆盖式解包不会删除旧文件：新版本里已不存在的根目录旧模块 / 旧协议目录一并清掉，避免与新包混跑
+  for f in "$APP_DIR"/*.py; do
+    [ -e "$WORK/src/${f##*/}" ] || rm -f "$f"
+  done
+  [ -e "$WORK/src/protocol" ] || rm -rf "$APP_DIR/protocol"
 }
 
 install_deps(){
@@ -150,7 +161,7 @@ wait_version(){  # wait_version <版本>
 
 rollback(){  # 已经动过代码：恢复原版本并重启
   local why="$1"
-  status restarting "$why；正在回滚到 $FROM"
+  status restarting "${why}；正在回滚到 $FROM"
   if [ "$METHOD" = git ] && [ -n "$OLD_HEAD" ]; then
     as_user git -C "$APP_DIR" reset -q --hard "$OLD_HEAD"
   else
@@ -159,9 +170,9 @@ rollback(){  # 已经动过代码：恢复原版本并重启
   [ "$REQS_CHANGED" = 1 ] && install_deps
   $SYSTEMCTL restart "$SERVICE"
   if wait_version "$FROM"; then
-    status rolled_back "$why；已回滚到 $FROM（备份 $BK）"
+    status rolled_back "${why}；已回滚到 ${FROM}（备份 ${BK}）"
   else
-    status failed "$why；回滚后服务没有报出 $FROM，请手动检查（备份 $BK）"
+    status failed "${why}；回滚后服务没有报出 ${FROM}，请手动检查（备份 ${BK}）"
   fi
   exit 1
 }
@@ -197,7 +208,7 @@ main(){
   fetch_git
   case $? in
     0) METHOD=git ;;
-    2) fail_unchanged "$GIT_PROBLEM，不能自动更新" ;;
+    2) fail_unchanged "${GIT_PROBLEM}，不能自动更新" ;;
     *) METHOD=tarball
        fetch_tarball || rollback "下载或解压 $TAG 失败" ;;
   esac
@@ -218,7 +229,7 @@ main(){
   if [ -n "$AGENT_COPY" ] && [ -f "$APP_DIR/deploy/updater.sh" ]; then
     install -m 755 "$APP_DIR/deploy/updater.sh" "$AGENT_COPY" 2>/dev/null || true
   fi
-  status done "已更新到 $TO（$METHOD；备份 $BK）"
+  status done "已更新到 ${TO}（${METHOD}；备份 ${BK}）"
 }
 
 main "$@"

@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import config
-import sites
-import work_reply as wr
+from dola_pool import config
+from dola_pool import sites
+from dola_pool import work_reply as wr
 from test_account_throttle import _row
 from test_task_deadline import _run
 from test_work_mode import _agent, _work_pool
@@ -216,7 +216,7 @@ def test_doubao_replaces_skill_examples_only_before_submission(monkeypatch, subm
 
 
 def test_doubao_work_generation_can_deliver_a_native_high_bitrate_link(monkeypatch):
-    import video_link
+    from dola_pool import video_link
     agent = load_agent(monkeypatch)
     item = agent._WorkSession('db', Page([]), None, model='doubao-seedance-2.5', duration=15)
     async def direct(model, account, conversation_id):
@@ -256,7 +256,7 @@ def test_doubao_unavailable_work_page_reopens_once_and_reports_startup_failure(m
     item.logged_out = logged_out
     monkeypatch.setattr(agent, "dismiss_popups", dismiss)
     if broken_attempts == 2:
-        from generation_errors import PreSubmissionParametersError
+        from dola_pool.generation_errors import PreSubmissionParametersError
         with pytest.raises(PreSubmissionParametersError, match="初始化超时或异常"):
             _run(item.open_chat())
     else:
@@ -266,7 +266,7 @@ def test_doubao_unavailable_work_page_reopens_once_and_reports_startup_failure(m
 
 @pytest.mark.parametrize("started", [False, True])
 def test_work_reference_failure_stops_confirmations_or_flags_the_existing_video(monkeypatch, started):
-    from generation_errors import UpstreamReplyError
+    from dola_pool.generation_errors import UpstreamReplyError
     agent = load_agent(monkeypatch)
     item = agent._WorkSession("db", Page([]), None, attachments=1, ratio="16:9",
                               model="doubao-seedance-2.0-fast")
@@ -282,7 +282,7 @@ def test_work_reference_failure_stops_confirmations_or_flags_the_existing_video(
 
 
 def test_work_existing_video_preserves_reference_and_ratio_validation_errors(monkeypatch):
-    import video_link
+    from dola_pool import video_link
     agent = load_agent(monkeypatch)
     item = agent._WorkSession("db", Page([]), None, attachments=1, ratio="16:9",
                               model="doubao-seedance-2.0-fast")
@@ -404,7 +404,7 @@ def test_personal_doubao_cookie_keeps_auto_mode(tmp_path, monkeypatch):
         return {"local_path": str(output)}
 
     _agent(monkeypatch, work_generate)
-    import doubao_gen
+    from dola_pool import doubao_gen
     monkeypatch.setattr(doubao_gen, "generate_doubao_video", lambda **kwargs: {
         "local_path": str(output), "account": "db"})
     result = _run(pool.test_generate("db", "湖面", "16:9", 15,
@@ -434,7 +434,7 @@ def test_short_work_result_preserves_video_and_claims_only_one_quota(tmp_path, m
 
 def test_fixed_account_work_quota_refusal_saves_reopen_time_without_daily_charge_or_rotation(tmp_path, monkeypatch):
     _, pool = _work_pool(tmp_path, monkeypatch, ["acc1", "acc2"])
-    from generation_errors import WorkQuotaError
+    from dola_pool.generation_errors import WorkQuotaError
     until = time.time() + 2 * 86400
     calls = []
 
@@ -465,7 +465,7 @@ def test_explicit_work_recovery_reads_original_without_pair_or_resubmission(tmp_
 def test_paid_or_wrong_duration_confirmation_stops_before_reply(monkeypatch):
     agent = load_agent(monkeypatch)
     item = agent._WorkSession("acc", Page([]), None, duration=30, model="seedance-2.0-fast")
-    from generation_errors import UpstreamReplyError
+    from dola_pool.generation_errors import UpstreamReplyError
     for text in ("请确认：时长：15秒，模型：Seedance 2.0 Fast", "是否继续使用付费额度？", "请确认升级会员后生成"):
         with pytest.raises(UpstreamReplyError) as caught:
             _run(item.next_answer(text))
@@ -476,7 +476,7 @@ def test_paid_or_wrong_duration_confirmation_stops_before_reply(monkeypatch):
 def test_no_matching_native_choice_stops_without_accepting_split(monkeypatch):
     agent = load_agent(monkeypatch)
     item = agent._WorkSession("acc", Page([]), None, duration=30, model="seedance-2.0-fast")
-    from generation_errors import UpstreamReplyError
+    from dola_pool.generation_errors import UpstreamReplyError
     with pytest.raises(UpstreamReplyError):
         _run(item.choice_labels([{"title": "请选择时长", "options": ["两段15秒", "单条15秒（推荐）"]}]))
 
@@ -494,8 +494,8 @@ def test_doubao_cookie_copy_never_opens_dola_profile(tmp_path, monkeypatch):
 
 
 def api_server(tmp_path, monkeypatch):
-    import server
-    from store import TaskStore
+    from dola_pool import server
+    from dola_pool.store import TaskStore
     monkeypatch.setattr(server, "store", TaskStore(str(tmp_path / "tasks.db")))
     monkeypatch.setattr(server, "pool", SimpleNamespace(available=True, accounts=["acc1"], site_of=lambda account: sites.DOLA))
     monkeypatch.setattr(config, "WORK_15S_ENABLED", False)
@@ -622,7 +622,7 @@ def test_batch_public_request_persists_count_and_limits_scope(tmp_path, monkeypa
 
 def test_batch_metadata_and_both_downloads_survive_store_reload_and_delete_together(tmp_path, monkeypatch):
     server = api_server(tmp_path, monkeypatch)
-    from store import TaskStore
+    from dola_pool.store import TaskStore
     monkeypatch.setattr(config,'DOWNLOAD_DIR',str(tmp_path))
     monkeypatch.setattr(server,'_video_metadata',lambda *args:{'video_duration':15,'video_width':1280,'video_height':720})
     files = [tmp_path/'a.mp4', tmp_path/'b.mp4']

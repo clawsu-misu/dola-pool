@@ -35,12 +35,12 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
 def test_add_job_reports_queue_holder_stage_and_finish(monkeypatch):
-    import server
+    from dola_pool import server
     seen = {}
 
     async def fake_import(name, cookies, require_login=True):

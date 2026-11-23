@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from prompt_context import AI_REFERENCE_NOTE, submission_prompt
-from store import TaskStore
+from dola_pool.prompt_context import AI_REFERENCE_NOTE, submission_prompt
+from dola_pool.store import TaskStore
 
 
 def run(coro):
@@ -15,7 +15,7 @@ def run(coro):
 
 @pytest.fixture
 def api(tmp_path, monkeypatch):
-    import server
+    from dola_pool import server
 
     db = TaskStore(str(tmp_path / 'tasks.db'))
     monkeypatch.setattr(server, 'store', db)
@@ -104,7 +104,7 @@ def test_supplement_counts_toward_prompt_limit(api, monkeypatch):
 
 @pytest.mark.parametrize('marked', [False, True])
 def test_worker_and_restart_keep_original_and_use_saved_supplement(tmp_path, monkeypatch, marked):
-    import server
+    from dola_pool import server
     path = str(tmp_path / 'tasks.db')
     db = TaskStore(path)
     original = '原始提示词'
@@ -167,7 +167,7 @@ def test_default_note_only_for_tasks_with_reference_images(api, refs, expected):
 @pytest.mark.parametrize('protocol', ['json', 'ark', 'ark_flag'])
 def test_requested_resolution_is_recorded_and_flag_stripped(api, protocol):
     """2026-10-30: 720p 交原片；1080p 及以上在开启自动超分时出片后自动超分（这里只看受理记录）。"""
-    import upscale
+    from dola_pool import upscale
     server, db, dispatched = api
     upscale.save_settings(db, {'provider': 'fal', 'fal_key': 'k-123456789', 'auto': 'param'})
     raw = dict(model='seedance-2.0-fast', prompt='白鹭飞过湖面', duration=10, ratio='16:9', resolution='1080p')
@@ -192,7 +192,7 @@ def test_requested_resolution_is_recorded_and_flag_stripped(api, protocol):
 
 
 def test_720p_and_disabled_auto_keep_the_original(api):
-    import upscale
+    from dola_pool import upscale
     server, db, _ = api
     upscale.save_settings(db, {'provider': 'fal', 'fal_key': 'k-123456789', 'auto': 'off'})
     async def scenario():
@@ -215,7 +215,7 @@ def test_720p_and_disabled_auto_keep_the_original(api):
 ])
 def test_resolution_found_in_common_places_and_echoed(api, extra, prompt):
     """2026-10-30 线上：PowerShell 调 /v1/videos 要了 1080p，服务端没认出（只看顶层 resolution），交了 720p。"""
-    import upscale
+    from dola_pool import upscale
     server, db, _ = api
     upscale.save_settings(db, {'provider': 'fal', 'fal_key': 'k-123456789', 'auto': 'param'})
     async def scenario():
@@ -257,7 +257,7 @@ def test_hd_short_link_answers_head(api):
 
 def test_new_api_style_metadata_ratio_and_resolution(api):
     """2026-10-30 线上原样请求：比例和分辨率都在 metadata 里，之前两样都没认出（比例 default、交 720p）。"""
-    import upscale
+    from dola_pool import upscale
     server, db, _ = api
     upscale.save_settings(db, {'provider': 'fal', 'fal_key': 'k-123456789', 'auto': 'param_or_size'})
     async def scenario():

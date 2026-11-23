@@ -21,7 +21,7 @@ def _stubs():
 
 
 _stubs()
-import pure_api_gen  # noqa: E402
+from dola_pool import pure_api_gen  # noqa: E402
 
 
 class FakePoll:

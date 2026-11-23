@@ -1,7 +1,7 @@
 """账号凭据解析与分配验证。"""
 from __future__ import annotations
 
-from credential_import import allocate_credentials, parse_account_line, parse_account_text
+from dola_pool.credential_import import allocate_credentials, parse_account_line, parse_account_text
 
 
 def test_parse_line_separators():

@@ -19,8 +19,8 @@ import types
 
 import pytest
 
-import config
-import store as store_mod
+from dola_pool import config
+from dola_pool import store as store_mod
 
 
 @pytest.fixture(autouse=True)
@@ -41,7 +41,7 @@ def _stubs():
         setattr(v, exc, type(exc, (Exception,), {}))
     v.generate_video = _no_playwright
     v.resume_video = _no_playwright
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
     yield
 
@@ -66,8 +66,8 @@ async def _build(tmp_path, monkeypatch, max_concurrency, n=3):
     monkeypatch.setattr(config, "DOWNLOAD_DIR", str(tmp_path / "downloads"))
     (tmp_path / "downloads").mkdir(parents=True, exist_ok=True)
 
-    import browser_pool
-    import server
+    from dola_pool import browser_pool
+    from dola_pool import server
 
     accounts_dir = tmp_path / "accounts"
     names = [f"acc{i}" for i in range(1, n + 1)]
@@ -126,7 +126,7 @@ def _gated(bp, gate, calls, fail_with=TimeoutError):
 
 def test_unlimited_concurrency_lets_every_task_start(tmp_path, monkeypatch):
     """DOLA_MAX_CONCURRENCY=0：3 个任务同时开跑，并保留动态调低能力。"""
-    import browser_pool
+    from dola_pool import browser_pool
 
     async def scenario():
         bp, server = await _build(tmp_path, monkeypatch, 0)
@@ -297,7 +297,7 @@ def test_started_at_is_not_pushed_back_by_account_switch(tmp_path, monkeypatch):
 
     async def scenario():
         bp, server = await _build(tmp_path, monkeypatch, 0)
-        import browser_pool
+        from dola_pool import browser_pool
 
         seen = []
         holder = {}

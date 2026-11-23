@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-import config
-import pool as pool_mod
-import proxy_store
-from pool import AccountConfig, AccountPool
+from dola_pool import config
+from dola_pool import pool as pool_mod
+from dola_pool import proxy_store
+from dola_pool.pool import AccountConfig, AccountPool
 
 
 @pytest.fixture(autouse=True)

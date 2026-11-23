@@ -4,8 +4,8 @@ from __future__ import annotations
 import os
 import time
 
-import config
-import store as store_mod
+from dola_pool import config
+from dola_pool import store as store_mod
 
 
 def _store(tmp_path) -> store_mod.TaskStore:
@@ -92,9 +92,9 @@ def test_watchdog_plan_fails_waiting_and_dispatches_stuck(tmp_path, monkeypatch)
         setattr(v, exc, type(exc, (Exception,), {}))
     v.generate_video = _no_playwright
     v.resume_video = _no_playwright
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
-    import server
+    from dola_pool import server
 
     # 关键：把 server 的 store 换成临时库，别把测试任务写进线上 tasks.db
     st = store_mod.TaskStore(str(tmp_path / "tasks.db"))

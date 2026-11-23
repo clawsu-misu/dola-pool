@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +40,7 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
@@ -70,7 +70,7 @@ def test_mode_default_and_legacy_flag(monkeypatch):
 # ---------------------------------------------------------------- 受理：reject 模式直接拒
 
 def test_reject_mode_refuses_30s_at_submit(monkeypatch):
-    import server
+    from dola_pool import server
     from fastapi import HTTPException
     monkeypatch.setattr(config, "LONG_VIDEO_MODE", "reject")
     with pytest.raises(HTTPException) as exc:
@@ -83,20 +83,20 @@ def test_reject_mode_refuses_30s_at_submit(monkeypatch):
 
 @pytest.mark.parametrize("mode", ["pair", "native"])
 def test_other_modes_accept_30s(monkeypatch, mode):
-    import server
+    from dola_pool import server
     monkeypatch.setattr(config, "LONG_VIDEO_MODE", mode)
     server._reject_unsupported_long(30)                  # 不抛
 
 
 def test_seedance_25_accepts_15s():
-    import server
+    from dola_pool import server
     assert server._resolve_model_for_duration("seedance-2.5", 15) == "seedance-2.5"
 
 
 # ---------------------------------------------------------------- 号池：pair 模式算两条额度、只用满额纯 API 号
 
 def _pool(tmp_path, monkeypatch, names=("acc1", "acc2")):
-    import browser_pool
+    from dola_pool import browser_pool
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     monkeypatch.setattr(config, "DAILY_LIMIT", 4)
     monkeypatch.setattr(browser_pool, "DAILY_LIMIT", 4)
@@ -203,7 +203,7 @@ def _pair(pure_api_gen, dola, tmp_path, notes=None):
 
 def test_pair_requests_30s_twice_and_concats_15s_parts(tmp_path, monkeypatch):
     """第一次原样请求 30 秒只出了 15 秒 → 补「后半段」再请求一次 30 秒，两段拼接。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     dola = _PairDola()
     merged = []
     monkeypatch.setattr(pure_api_gen, "_concat_videos",
@@ -220,7 +220,7 @@ def test_pair_requests_30s_twice_and_concats_15s_parts(tmp_path, monkeypatch):
 
 def test_pair_judges_by_real_length_not_announcement(tmp_path, monkeypatch):
     """回执说几秒不作数（「按 15 秒」实测出了 30 秒）；真只出了 5 秒才失败，且不再补段、不换号。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     dola = _PairDola(ack_texts=["视频生成目前支持 4 到 15 秒。我将按默认 5 秒为你生成。"])
     monkeypatch.setattr(pure_api_gen, "_media_duration", lambda p: 5.04)
     with pytest.raises(pure_api_gen.PairSegmentShortError, match="只出了 5.0 秒"):
@@ -230,7 +230,7 @@ def test_pair_judges_by_real_length_not_announcement(tmp_path, monkeypatch):
 
 
 def test_pair_rejects_short_downloaded_part(tmp_path, monkeypatch):
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     dola = _PairDola()
     monkeypatch.setattr(pure_api_gen, "_media_duration", lambda p: 5.04)
     with pytest.raises(pure_api_gen.PairSegmentShortError, match="只出了 5.0 秒"):

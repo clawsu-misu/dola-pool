@@ -230,9 +230,9 @@ assert(upstreamNote({id:'d3',model:'doubao-seedance-2.5',account:'acc154',upstre
 
 
 def test_admin_task_source_comes_from_account_site(tmp_path, monkeypatch):
-    import server
-    import sites
-    import store
+    from dola_pool import server
+    from dola_pool import sites
+    from dola_pool import store
 
     task_store = store.TaskStore(str(tmp_path / "tasks.db"))
     task_store.create("doubao_note", "seedance-2.0-fast", "p", "16:9", 15, account="acc154")

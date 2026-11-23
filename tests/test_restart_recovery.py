@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import time
 
-import config
-import store as store_mod
+from dola_pool import config
+from dola_pool import store as store_mod
 
 
 def _store(tmp_path) -> store_mod.TaskStore:
@@ -104,9 +104,9 @@ def test_watchdog_spares_just_requeued_task(tmp_path, monkeypatch):
         setattr(v, exc, type(exc, (), {}))
     v.generate_video = _no_playwright
     v.resume_video = _no_playwright
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
-    import server
+    from dola_pool import server
 
     st = store_mod.TaskStore(str(tmp_path / "tasks.db"))
     monkeypatch.setattr(server, "store", st)

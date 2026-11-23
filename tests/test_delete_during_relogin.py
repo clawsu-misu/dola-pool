@@ -37,7 +37,7 @@ def test_delete_retries_and_keeps_the_record_when_the_folder_is_in_use(tmp_path,
 
 
 def test_background_relogin_holds_the_account_lock(tmp_path, monkeypatch):
-    import server
+    from dola_pool import server
     _, bp, _ = _pool(tmp_path, monkeypatch, {"acc1": "a", "acc2": "b"})
     bp.set_login_status("acc1", False)
     bp.set_login_status("acc2", False)

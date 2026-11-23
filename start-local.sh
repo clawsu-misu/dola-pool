@@ -75,4 +75,4 @@ cat <<EOF
 ==============================================================
 
 EOF
-exec .venv/bin/uvicorn server:app --host "$HOST" --port "$PORT" --workers 1
+exec .venv/bin/uvicorn dola_pool.server:app --host "$HOST" --port "$PORT" --workers 1

@@ -1,7 +1,7 @@
 """多行 Cookie 头文本解析验证。"""
 from __future__ import annotations
 
-from cookie_import import (
+from dola_pool.cookie_import import (
     cookie_header_to_state,
     parse_cookie_header_text,
     parse_cookie_header_line,

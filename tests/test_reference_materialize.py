@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-import config
-import media
+from dola_pool import config
+from dola_pool import media
 
 
 def _png_bytes(size: int = 48) -> bytes:

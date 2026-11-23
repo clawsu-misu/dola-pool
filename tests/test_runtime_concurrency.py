@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from concurrency import AdjustableConcurrency
-from store import TaskStore
+from dola_pool.concurrency import AdjustableConcurrency
+from dola_pool.store import TaskStore
 
 
 def run(coro):
@@ -100,7 +100,7 @@ def test_unlimited_wakes_all_and_context_exception_releases_slot():
 
 
 def test_admin_concurrency_validation_auth_persistence_and_live_update(tmp_path, monkeypatch):
-    import server
+    from dola_pool import server
     storage = TaskStore(str(tmp_path / 'settings.db'))
     gate = AdjustableConcurrency(storage.get_global_concurrency(1))
     class Pool:
@@ -144,7 +144,7 @@ def test_admin_concurrency_validation_auth_persistence_and_live_update(tmp_path,
 
 
 def test_failed_save_does_not_change_live_limit(tmp_path, monkeypatch):
-    import server
+    from dola_pool import server
     gate = AdjustableConcurrency(1)
     monkeypatch.setattr(server, '_admin_auth', lambda token: None)
     monkeypatch.setattr(server, 'pool', SimpleNamespace(set_max_concurrency=gate.set_limit))

@@ -10,10 +10,10 @@ import time
 
 import pytest
 
-import config
-import work_pair
-import work_reply as wr
-from store import TaskStore
+from dola_pool import config
+from dola_pool import work_pair
+from dola_pool import work_reply as wr
+from dola_pool.store import TaskStore
 from test_account_throttle import _row
 from test_task_deadline import _run
 from test_work_mode import _agent, _work_pool
@@ -289,7 +289,7 @@ def test_work_job_keeps_switching_past_the_short_task_deadline(tmp_path, monkeyp
 # ---------- 来源一栏：老的登录号显示成「—」 ----------
 
 def test_blank_source_of_browser_login_accounts_is_backfilled(tmp_path, monkeypatch):
-    import browser_pool
+    from dola_pool import browser_pool
     accounts = tmp_path / "accounts"
     (accounts / "old-login" / "Default").mkdir(parents=True)
     (accounts / "cookie-only").mkdir(parents=True)

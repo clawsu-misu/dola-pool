@@ -77,7 +77,7 @@ c_ok "Node.js $(node -v)"
 # ---------------------------------------------------------------- 2. 代码
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo /nonexistent)"
 SRC_DIR=""
-if [ -f "$SCRIPT_DIR/../server.py" ]; then
+if [ -f "$SCRIPT_DIR/../dola_pool/server.py" ]; then
   SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 fi
 
@@ -189,7 +189,7 @@ User=${DOLA_USER}
 WorkingDirectory=${DOLA_DIR}
 Environment=DISPLAY=:${DOLA_DISPLAY}
 EnvironmentFile=${ENV_FILE}
-ExecStart=${DOLA_DIR}/.venv/bin/uvicorn server:app --host ${LISTEN_HOST} --port ${DOLA_PORT} --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
+ExecStart=${DOLA_DIR}/.venv/bin/uvicorn dola_pool.server:app --host ${LISTEN_HOST} --port ${DOLA_PORT} --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=always
 RestartSec=5
 
@@ -272,7 +272,7 @@ cat <<EOF
     升级版本   重新执行本脚本（数据保留）
 ------------------------------------------------------------------
   下一步：添加代理 → 添加账号 → 验证 → 测试生成
-  详细步骤见 USAGE.md：https://github.com/Roins-hub/dola-pool/blob/main/USAGE.md
+  详细步骤见 docs/USAGE.md：https://github.com/Roins-hub/dola-pool/blob/main/docs/USAGE.md
 ==================================================================
 EOF
 if [ -z "$DOLA_DOMAIN" ]; then

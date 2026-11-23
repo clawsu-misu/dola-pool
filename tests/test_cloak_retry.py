@@ -3,9 +3,9 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-import cloak_retry
-import config
-import video_worker_ui as ui
+from dola_pool import cloak_retry
+from dola_pool import config
+from dola_pool import video_worker_ui as ui
 from test_task_deadline import _run
 
 
@@ -15,7 +15,7 @@ from test_task_deadline import _run
 def retry_ready(monkeypatch):
     monkeypatch.setattr(config, "CLOAK_RETRY", True)
     monkeypatch.setattr(cloak_retry, "find_spec", lambda name: object())
-    import account_transport
+    from dola_pool import account_transport
     monkeypatch.setattr(account_transport, "http_proxy", lambda account: "http://127.0.0.1:1")
 
 
@@ -39,13 +39,13 @@ def test_no_retry_without_cloakbrowser(retry_ready, monkeypatch):
 
 
 def test_no_retry_without_proxy(retry_ready, monkeypatch):
-    import account_transport
+    from dola_pool import account_transport
     monkeypatch.setattr(account_transport, "http_proxy", lambda account: None)
     assert "代理" in cloak_retry.unavailable_reason("acc1", 10)
 
 
 def test_no_retry_when_proxy_lookup_refuses(retry_ready, monkeypatch):
-    import account_transport
+    from dola_pool import account_transport
 
     def refuse(account):
         raise RuntimeError("严格隔离模式下账号没有启用的绑定代理，禁止直连")
@@ -166,7 +166,7 @@ def test_rejection_counts_as_upstream_throttle():
     assert isinstance(ui.SubmitRejectedError(ui.REJECTED_NOTE), ui.RiskControlError)
     # 在用到时才导入 browser_pool：收集阶段就导入会连带载入真实的 cookie_login，
     # 让 test_cookie_batch_import 的桩模块失效
-    import browser_pool
+    from dola_pool import browser_pool
     assert browser_pool.classify_upstream_failure(ui.REJECTED_NOTE) == "transient"
 
 
@@ -275,7 +275,7 @@ def quiet_page(monkeypatch):
     async def logged_in(page):
         return False
     monkeypatch.setattr(ui, "is_logged_out", logged_in)
-    import browser_video_params
+    from dola_pool import browser_video_params
     monkeypatch.setattr(browser_video_params, "select_video_parameters", nothing)
 
 

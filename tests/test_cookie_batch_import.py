@@ -27,7 +27,7 @@ def _stubs():
         raise RuntimeError("stub")
     v.generate_video = _g
     v.resume_video = _r
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
 
     # browser
@@ -38,7 +38,7 @@ def _stubs():
     async def _check(_name):
         return True
     b.check_login_state = _check
-    sys.modules["browser"] = b
+    sys.modules["dola_pool.browser"] = b
 
     # patchright
     pr = _mod("patchright")
@@ -61,8 +61,8 @@ def _stubs():
 
 
 def _make_pool(tmp_path):
-    import browser_pool, proxy_store
-    import config
+    from dola_pool import browser_pool, proxy_store
+    from dola_pool import config
     config.POOL_DB_PATH = str(tmp_path / "pool_usage.db")
     proxy_store.DB_PATH = Path(config.POOL_DB_PATH)
     accounts_dir = tmp_path / "accounts"
@@ -76,8 +76,8 @@ def _make_pool(tmp_path):
 
 
 def test_batch_import_dedup_and_naming(tmp_path, monkeypatch):
-    import cookie_login
-    import browser_pool
+    from dola_pool import cookie_login
+    from dola_pool import browser_pool
     bp = _make_pool(tmp_path)
     # 已有一个 sessionid=sid-one 的账号
     bp.set_sessionid("acc9", "sid-one")
@@ -119,21 +119,21 @@ def _pure_probe_stub(monkeypatch, result=(True, "logged_in")):
         calls.append(state_file)
         return result
     module.probe_login = probe_login
-    monkeypatch.setitem(sys.modules, "pure_api_gen", module)
+    monkeypatch.setitem(sys.modules, "dola_pool.pure_api_gen", module)
     return calls
 
 
 def test_import_cookie_account_falls_back_to_pure(tmp_path, monkeypatch):
     """浏览器后端不可用（CentOS7 glibc 2.17）时，导入不该失败，而是走纯 API。"""
     import asyncio
-    import cookie_login
+    from dola_pool import cookie_login
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cookie_login, "browser_backend_available",
                         lambda: (False, "驱动无法执行: GLIBC_2.28 not found"))
     probe_calls = _pure_probe_stub(monkeypatch)
 
-    import config
+    from dola_pool import config
     monkeypatch.setattr(config, "PURE_API_ENABLED", True)
 
     bundle = {"cookies": [
@@ -159,7 +159,7 @@ def test_import_cookie_account_falls_back_to_pure(tmp_path, monkeypatch):
 def test_import_cookie_account_forced_browser_still_falls_back(tmp_path, monkeypatch):
     """即使调用方指定浏览器，驱动不可用时也退回纯 API，而不是整批导入报错。"""
     import asyncio
-    import cookie_login
+    from dola_pool import cookie_login
 
     monkeypatch.chdir(tmp_path)
     probe_calls = _pure_probe_stub(monkeypatch, result=(False, "not logged in"))
@@ -187,7 +187,7 @@ def test_import_cookie_account_forced_browser_still_falls_back(tmp_path, monkeyp
 
 def test_import_cookie_account_skip_verify_does_not_probe(tmp_path, monkeypatch):
     import asyncio
-    import cookie_login
+    from dola_pool import cookie_login
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cookie_login, "browser_backend_available", lambda: (False, "no driver"))

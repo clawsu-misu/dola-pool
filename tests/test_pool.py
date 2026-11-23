@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from pool import (
+from dola_pool.pool import (
     AccountConfig,
     AccountPool,
     DailyUsage,

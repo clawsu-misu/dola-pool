@@ -15,4 +15,4 @@ if command -v Xvfb >/dev/null 2>&1; then
   Xvfb "$DISPLAY" -screen 0 1280x1024x24 -ac >/tmp/xvfb.log 2>&1 &
   sleep 1
 fi
-exec python -m uvicorn server:app --host 0.0.0.0 --port "${PORT:-8000}"
+exec python -m uvicorn dola_pool.server:app --host 0.0.0.0 --port "${PORT:-8000}"

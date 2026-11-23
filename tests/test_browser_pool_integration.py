@@ -23,14 +23,14 @@ def _stubs():
         raise RuntimeError("stub")
     v.generate_video = _gen
     v.resume_video = _resume
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
     yield
 
 
 def _seed_accounts(tmp_path):
-    import browser_pool, proxy_store
-    import config
+    from dola_pool import browser_pool, proxy_store
+    from dola_pool import config
     config.POOL_DB_PATH = str(tmp_path / "pool_usage.db")
     proxy_store.DB_PATH = Path(config.POOL_DB_PATH)
     accounts_dir = tmp_path / "accounts"

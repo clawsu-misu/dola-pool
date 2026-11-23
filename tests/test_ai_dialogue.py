@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import dola_responder as r
-from generation_errors import AIAccountUnavailableError, UpstreamReplyError
+from dola_pool import dola_responder as r
+from dola_pool.generation_errors import AIAccountUnavailableError, UpstreamReplyError
 from test_dola_responder import FakeResp, FakeSession
 from test_doubao import FREE_ACCEPTED, _FakeDP, _gen, _pool, _run, _stubs
 
@@ -127,7 +127,7 @@ def test_doubao_unknown_quota_can_request_a_switch_without_confirmation(monkeypa
 
 def test_doubao_generic_inability_is_not_misclassified_as_quota(monkeypatch, tmp_path):
     text = '目前无法生成这个视频，请提供具体场景。'
-    import doubao_gen
+    from dola_pool import doubao_gen
     assert not doubao_gen.looks_like_quota_exhausted(text)
     stub_ai(monkeypatch, decision('stop', 'missing_input', text))
     dp = _FakeDP([(0, text, [])])
@@ -239,8 +239,8 @@ def test_ai_stop_cannot_be_retried_by_portrait_fallback(tmp_path, monkeypatch):
 def test_work_pair_shares_and_saves_ai_switch_limit_across_segments(tmp_path, monkeypatch):
     from test_work_mode import _agent, _work_pool
     from pathlib import Path
-    import config
-    import work_pair
+    from dola_pool import config
+    from dola_pool import work_pair
     browser_pool, pool = _work_pool(tmp_path, monkeypatch, ['acc1', 'acc2', 'acc3', 'acc4', 'acc5'])
     monkeypatch.setattr(config, 'DOWNLOAD_DIR', str(tmp_path))
     monkeypatch.setattr(browser_pool, 'ensure_web_playable', lambda path: path)
@@ -298,7 +298,7 @@ def test_work_dola_generating_with_paused_ui_does_not_ask_ai(monkeypatch):
 
 
 def pure_handler(monkeypatch, text=QUESTION):
-    import pure_api_gen as pure
+    from dola_pool import pure_api_gen as pure
     from test_work_session import bot
     responder = r.DialogueResponder(prompt='原始分镜', ratio='16:9', duration=15, model='Seedance 2.0 Fast')
     sent = []
@@ -338,7 +338,7 @@ def test_pure_dola_only_analyzes_latest_finished_unaccepted_reply(monkeypatch, s
 
 
 def test_protocol_polling_calls_pending_handler_before_next_poll(monkeypatch):
-    from protocol import dola_pure_api as dp
+    from dola_pool.protocol import dola_pure_api as dp
     polls = iter([dp.PollResult([], [], 'pending', [], [], []), dp.PollResult(['video'], [], 'succeeded', [], [], [])])
     monkeypatch.setattr(dp, 'inspect_video_once', lambda *args: next(polls))
     monkeypatch.setattr(dp.time, 'sleep', lambda seconds: None)
@@ -348,7 +348,7 @@ def test_protocol_polling_calls_pending_handler_before_next_poll(monkeypatch):
 
 
 def test_pure_generic_failure_can_be_judged_as_a_question_and_answered(monkeypatch):
-    from protocol import dola_pure_api as dp
+    from dola_pool.protocol import dola_pure_api as dp
     calls = stub_ai(monkeypatch, decision())
     callback, poll, sent = pure_handler(monkeypatch)
     poll.status = 'failed'

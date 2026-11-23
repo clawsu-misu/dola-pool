@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +40,7 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
@@ -70,7 +70,7 @@ class _Dola:
     BASE = "https://www.dola.com"
 
     def __init__(self, first_texts):
-        from protocol import dola_pure_api as real
+        from dola_pool.protocol import dola_pure_api as real
         self.real = real
         self.first_texts = first_texts
         self.video_submits = []
@@ -133,22 +133,22 @@ def _pair(pure_api_gen, dola, tmp_path, stats=None):
 
 def test_screenshot_reply_is_accepted_not_a_question():
     """10-14 网页截图的回执：已受理（扣 2 点）+ 说了压到 15 秒 → 不回话、按压时长处理。"""
-    import pure_api_gen
-    from protocol import dola_pure_api as real
+    from dola_pool import pure_api_gen
+    from dola_pool.protocol import dola_pure_api as real
     assert not pure_api_gen._awaiting_confirmation(real, [CAPPED, ACCEPTED])
     assert real.looks_like_duration_capped(CAPPED)
     assert pure_api_gen._awaiting_confirmation(real, [ASKING])
 
 
 def test_english_cap_wording_detected():
-    from protocol import dola_pure_api as real
+    from dola_pool.protocol import dola_pure_api as real
     text = ("视频 generation currently supports durations from 4 to 15 seconds. I can generate it at "
             "the nearest supported duration of 15 seconds. Do you want me to proceed with a 15-second version?")
     assert real.looks_like_duration_capped(text)
 
 
 def test_question_gets_confirm_reply_in_same_conversation(tmp_path, monkeypatch):
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     dola = _Dola([ASKING])
     merged = []
     monkeypatch.setattr(pure_api_gen, "_concat_videos",
@@ -163,7 +163,7 @@ def test_question_gets_confirm_reply_in_same_conversation(tmp_path, monkeypatch)
 
 def test_accepted_capped_reply_does_not_get_confirm(tmp_path, monkeypatch):
     """已经播报扣点的回执绝不能再回「确认生成」（可能被当成新请求再扣一次）。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     dola = _Dola([CAPPED, ACCEPTED])
     monkeypatch.setattr(pure_api_gen, "_concat_videos", lambda parts, out: Path(out))
     monkeypatch.setattr(pure_api_gen, "_media_duration", lambda p: 15.04)
@@ -172,7 +172,7 @@ def test_accepted_capped_reply_does_not_get_confirm(tmp_path, monkeypatch):
 
 
 def test_native_30s_first_segment_delivered_alone(tmp_path, monkeypatch):
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     dola = _Dola([ACCEPTED])                       # 没说压时长
     monkeypatch.setattr(pure_api_gen, "_concat_videos",
                         lambda parts, out: (_ for _ in ()).throw(AssertionError("不该拼接")))
@@ -186,7 +186,7 @@ def test_native_30s_first_segment_delivered_alone(tmp_path, monkeypatch):
 
 def test_silent_cap_then_second_segment(tmp_path, monkeypatch):
     """回执没说压时长、落地却只有 15 秒：再补第 2 段并拼接。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     dola = _Dola([ACCEPTED])
     merged = []
     monkeypatch.setattr(pure_api_gen, "_concat_videos",
@@ -199,7 +199,7 @@ def test_silent_cap_then_second_segment(tmp_path, monkeypatch):
 
 
 def test_silent_cap_without_credits_for_second_segment(tmp_path, monkeypatch):
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     dola = _Dola(["本次使用 Seedance 2.5 生成，将消耗 2 个视频生成额度，预计等待 1 小时。今日剩余 0 个视频生成额度。"])
     monkeypatch.setattr(pure_api_gen, "_media_duration", lambda p: 15.04)
     credits = pure_api_gen._CreditTracker()
@@ -214,7 +214,7 @@ def test_silent_cap_without_credits_for_second_segment(tmp_path, monkeypatch):
 # ---------------------------------------------------------------- 号池
 
 def _pool(tmp_path, monkeypatch, cookie=("acc1",), browser=("acc7",)):
-    import browser_pool
+    from dola_pool import browser_pool
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     monkeypatch.setattr(config, "DAILY_LIMIT", 4)
     monkeypatch.setattr(browser_pool, "DAILY_LIMIT", 4)
@@ -306,7 +306,7 @@ def test_native_30s_charges_one_segment(tmp_path, monkeypatch):
 
 def test_any_full_length_segment_is_delivered_alone_never_60s(tmp_path, monkeypatch):
     """dola 嘴上说「按 15 秒生成」、实际按参数出了 30 秒：交付这一段，不拼成 60 秒。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     dola = _Dola([CAPPED, ACCEPTED])               # 回执说「按 15 秒」——2026-10-14 AWS 实测 4 单都出了 30.08 秒
     monkeypatch.setattr(pure_api_gen, "_concat_videos",
                         lambda parts, out: (_ for _ in ()).throw(AssertionError("不该拼成 60 秒")))

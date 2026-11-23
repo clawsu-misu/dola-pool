@@ -9,13 +9,13 @@ import time
 import pytest
 from fastapi import HTTPException
 
-import user_store
+from dola_pool import user_store
 from test_task_deadline import _run
 
 
 @pytest.fixture
 def server(tmp_path, monkeypatch):
-    import server as server_mod
+    from dola_pool import server as server_mod
     monkeypatch.setattr(user_store, "DB_PATH", str(tmp_path / "users.db"))
     user_store._seed()
     monkeypatch.setattr(server_mod, "ADMIN_SESSIONS", {})

@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 @pytest.fixture(autouse=True)
@@ -26,7 +26,7 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
     yield
 
@@ -40,7 +40,7 @@ def _run(coro):
 
 
 def _pool(tmp_path, monkeypatch, names=("acc1", "acc2")):
-    import browser_pool
+    from dola_pool import browser_pool
 
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     monkeypatch.setattr(config, "DAILY_LIMIT", 4)
@@ -108,7 +108,7 @@ def test_config_defaults():
 
 @pytest.mark.parametrize('stage', ['upload', 'parameters'])
 def test_upload_failure_before_submission_tries_next_account(tmp_path, monkeypatch, stage):
-    from generation_errors import PreSubmissionUploadError, PreSubmissionParametersError
+    from dola_pool.generation_errors import PreSubmissionUploadError, PreSubmissionParametersError
     error_class = PreSubmissionUploadError if stage == 'upload' else PreSubmissionParametersError
     _, bp = _pool(tmp_path, monkeypatch)
     calls, notes = [], []
@@ -131,7 +131,7 @@ def test_upload_failure_before_submission_tries_next_account(tmp_path, monkeypat
 
 
 def test_upload_failures_respect_attempt_limit(tmp_path, monkeypatch):
-    from generation_errors import PreSubmissionUploadError
+    from dola_pool.generation_errors import PreSubmissionUploadError
     _, bp = _pool(tmp_path, monkeypatch)
     calls = []
 

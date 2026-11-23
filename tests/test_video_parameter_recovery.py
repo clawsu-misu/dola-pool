@@ -2,9 +2,9 @@ import asyncio
 
 import pytest
 
-import browser_video_params
-import video_worker_ui
-from generation_errors import PreSubmissionParameterTimeout
+from dola_pool import browser_video_params
+from dola_pool import video_worker_ui
+from dola_pool.generation_errors import PreSubmissionParameterTimeout
 
 
 def run(coro):

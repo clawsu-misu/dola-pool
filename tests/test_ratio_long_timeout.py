@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 @pytest.fixture(autouse=True)
@@ -36,12 +36,12 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
 def test_ark_ratio_accepts_21_9():
-    import server
+    from dola_pool import server
     assert server._map_ark_ratio("21:9") == "21:9"
     assert server._map_ark_ratio("16:9") == "16:9"
     assert server._map_ark_ratio("adaptive") is None
@@ -49,7 +49,7 @@ def test_ark_ratio_accepts_21_9():
 
 
 def test_size_maps_to_21_9():
-    import server
+    from dola_pool import server
     assert server._resolve_ratio("1680x720", None) == "21:9"
     assert server._resolve_ratio("2520x1080", None) == "21:9"
     assert server._resolve_ratio(None, "21:9") == "21:9"
@@ -57,7 +57,7 @@ def test_size_maps_to_21_9():
 
 
 def test_protocol_keeps_21_9():
-    from protocol import dola_pure_api as dola
+    from dola_pool.protocol import dola_pure_api as dola
     assert dola.normalize_ratio("21:9") == "21:9"
     assert "21:9" in dola.VALID_RATIOS
 

@@ -22,7 +22,7 @@
 
 **Community**: scan the QR code on the right to join the group.
 
-**New here?** Start with [`USAGE.md`](USAGE.md) (Chinese): it walks from zero to your first video and explains every button in the panel. Read [`COOKIE.md`](COOKIE.md) before adding accounts; it shows how to export account cookies.
+**New here?** Start with [`USAGE.md`](docs/USAGE.md) (Chinese): it walks from zero to your first video and explains every button in the panel. Read [`COOKIE.md`](docs/COOKIE.md) before adding accounts; it shows how to export account cookies.
 
 <br clear="right">
 
@@ -66,12 +66,12 @@ Download the source archive from the [Release](https://github.com/Roins-hub/dola
 - on Windows, double-click `start-local.bat`;
 - on macOS / Linux, run `bash start-local.sh`.
 
-You need Python 3.10+ and Node.js 18+. Outside Japan / Korea you need a proxy, see [`USAGE.md`](USAGE.md).
+You need Python 3.10+ and Node.js 18+. Outside Japan / Korea you need a proxy, see [`USAGE.md`](docs/USAGE.md).
 
 <details>
 <summary><b>Manual install (source + systemd)</b></summary>
 
-dola.com requires a Japanese or Korean exit IP, so a server in mainland China must use a proxy. For static and rotating proxies and how to avoid rate limits, see [`PROXY.md`](PROXY.md) (Chinese).
+dola.com requires a Japanese or Korean exit IP, so a server in mainland China must use a proxy. For static and rotating proxies and how to avoid rate limits, see [`PROXY.md`](docs/PROXY.md) (Chinese).
 
 ```bash
 git clone https://github.com/Roins-hub/dola-pool.git && cd dola-pool
@@ -83,7 +83,7 @@ export DOLA_API_KEYS=sk-your-key                      # public API keys, comma-s
 export DOLA_ADMIN_KEY=change-me                       # admin panel key
 export DOLA_PROXY=http://user:pass@jp-proxy:port
 export DOLA_PUBLIC_BASE=https://your-domain           # public address used in video_url
-uvicorn server:app --host 127.0.0.1 --port 8002       # listen locally, expose through nginx
+uvicorn dola_pool.server:app --host 127.0.0.1 --port 8002       # listen locally, expose through nginx
 ```
 
 To keep it running with systemd, put the variables in `/opt/dola-pool/dola.env` and create `/etc/systemd/system/dola-pool.service`:
@@ -97,7 +97,7 @@ After=network.target
 User=ubuntu
 WorkingDirectory=/opt/dola-pool
 EnvironmentFile=/opt/dola-pool/dola.env
-ExecStart=/opt/dola-pool/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8002
+ExecStart=/opt/dola-pool/.venv/bin/uvicorn dola_pool.server:app --host 127.0.0.1 --port 8002
 Restart=always
 RestartSec=5
 
@@ -128,7 +128,7 @@ curl -o out.mp4 https://your-domain/v1/videos/video_xxx/content -H "Authorizatio
 - **Reference images**: pass a public URL or Base64 in any of `reference_images`, `image_url`, `image` or `input_image(s)`, up to 20 MiB each.
 - **Duration**: accepted as `duration`, `seconds` or `duration_seconds`.
 - **Aspect ratio**: the request parameter wins. If the prompt mentions a different ratio, dola is told to follow the parameter.
-- **Resolution**: optionally pass `resolution` (`720p` / `1080p` / `2k` / `4k`). With auto-upscaling enabled in the panel, finished videos are upscaled to that tier; see [UPSCALE.md](UPSCALE.md).
+- **Resolution**: optionally pass `resolution` (`720p` / `1080p` / `2k` / `4k`). With auto-upscaling enabled in the panel, finished videos are upscaled to that tier; see [UPSCALE.md](docs/UPSCALE.md).
 - **Reference source note**: tasks with reference images get a note saying the references are AI-generated material by default (`DOLA_DEFAULT_REFERENCE_SOURCE=ai_generated`). Pass `"reference_source": "unspecified"` to skip it. The note only states the source truthfully; it does not guarantee the upstream review will pass.
 
 For Doubao video, switch the model to `doubao-seedance-*`. Image generation runs on Doubao accounts only and returns synchronously:
@@ -143,7 +143,7 @@ curl -X POST https://your-domain/v1/images/edits -H "Authorization: Bearer sk-yo
   -F model=doubao-seedream-5.0-flash -F prompt="Remove the cat's whiskers" -F image=@cat.jpg
 ```
 
-Fields, error codes and admin endpoints are in [`API.md`](API.md).
+Fields, error codes and admin endpoints are in [`API.md`](docs/API.md).
 
 ## Models
 
@@ -193,7 +193,7 @@ Images take about 20 seconds, at 2K.
 - **Parameter check**: Doubao first asks to confirm the parameters. The pool confirms only when duration and model match; otherwise it reports an error.
 - **Watermark**: the visible "AI generated" watermark is a per-account setting. With `DOUBAO_AUTO_NO_WATERMARK=1` (default) the pool turns it off through the official settings API and downloads through the official watermark-free endpoint. Whoever publishes the content must label it as AI-generated.
 - **Aspect ratio**: video supports `16:9 / 9:16 / 1:1 / 4:3 / 3:4 / 21:9`. For images, Doubao reads the ratio from the prompt text, and the pool writes it in automatically.
-- **Network and import**: works from servers outside China without a Japanese / Korean proxy. Accounts can only be imported by cookie, see [COOKIE.md](COOKIE.md).
+- **Network and import**: works from servers outside China without a Japanese / Korean proxy. Accounts can only be imported by cookie, see [COOKIE.md](docs/COOKIE.md).
 - **Plugin names**: the official names used by the new-api Doubao plugin (such as `doubao-seedance-2-0-260128`) are not Doubao-account models; they still go to dola.
 
 </details>
@@ -275,7 +275,7 @@ DOLA_MIN_SUBMIT_INTERVAL_SECONDS=15
 - **What it isolates**: browser data only; this is not a virtual machine per account, and separate proxy records do not guarantee separate public IPs.
 - **Limits**: the official Docker image does not include CloakBrowser, so build it as above; a self-built image cannot use the panel's one-click update. `DOLA_30S_MODE=pair` only uses pure-API accounts, so strictly isolated accounts are skipped (the 30-second stitching that comes with the 2.0 15-second option is not affected). CloakBrowser is pinned to 0.6.3, because 0.7 and later need a license key.
 
-See [`ISOLATION.md`](ISOLATION.md) (Chinese) for the full steps.
+See [`ISOLATION.md`](docs/ISOLATION.md) (Chinese) for the full steps.
 
 </details>
 
@@ -284,17 +284,11 @@ See [`ISOLATION.md`](ISOLATION.md) (Chinese) for the full steps.
 
 | Path | Purpose |
 |---|---|
-| `server.py` | FastAPI service: public API, Ark-compatible API, admin API, task execution |
-| `browser_pool.py` | Pool scheduling: account choice, retries, time limits, quota and cooldowns |
-| `pool.py` / `store.py` / `user_store.py` | Account pool, task storage (SQLite), admins |
-| `proxy_store.py` | Static / dynamic proxies and rotation |
-| `pure_api_gen.py` / `protocol/` | Pure HTTP generation (dola; the Doubao site config is in `protocol/doubao_site.py`) |
-| `doubao_gen.py` / `image_gen.py` | Doubao video and image generation |
-| `browser.py` / `video_worker_ui.py` | Browser automation path |
-| `upstream_reply.py` / `dola_responder.py` | Automatic replies to dola's questions and the AI responder |
-| `upscale.py` | Video upscaling |
-| `web/` | Admin panel; `web/i18n/` holds translations, see [`I18N.md`](I18N.md) |
+| `dola_pool/` | Service package: server (FastAPI), browser_pool (pool scheduling), pure_api_gen + protocol/ (pure HTTP generation), doubao_gen / image_gen (Doubao), browser + video_worker_ui (browser fallback), store / proxy_store and other storage |
+| `web/` | Admin panel; `web/i18n/` holds translations, see [`I18N.md`](docs/I18N.md) |
 | `deploy/` | Install and one-click update scripts |
+| `docs/` | Topic docs (usage, API, reverse-engineering notes) |
+| `tools/` | Debug probes and login tools |
 | `Dockerfile` / `docker-compose.yml` / `docker/` | Docker image and compose files |
 | `tests/` | pytest suite: `pip install pytest && pytest -q tests` |
 
@@ -303,7 +297,7 @@ See [`ISOLATION.md`](ISOLATION.md) (Chinese) for the full steps.
 ## Notes
 
 - **Cookie lifetime**: account cookies expire after about 60 days. Expired accounts are flagged automatically and need to be re-imported. **Do not log out in the browser** of an account you imported: logging out invalidates its cookie immediately.
-- **dola watermark**: the pool downloads the watermark-free version of the same video from dola's own response (`lr=unwatermarked`) and does not alter the frames. The third-party parsing service is off by default (`DOLA_PURE_REMOVE_WATERMARK=0`); see [`USAGE.md`](USAGE.md#7-去水印说明) for how it works and the risks.
+- **dola watermark**: the pool downloads the watermark-free version of the same video from dola's own response (`lr=unwatermarked`) and does not alter the frames. The third-party parsing service is off by default (`DOLA_PURE_REMOVE_WATERMARK=0`); see [`USAGE.md`](docs/USAGE.md#7-去水印说明) for how it works and the risks.
 - **Credentials**: `accounts/`, `*.db`, `dola.env`, `cookies.txt` and `downloads/` are git-ignored. Never commit real credentials.
 
 ## License

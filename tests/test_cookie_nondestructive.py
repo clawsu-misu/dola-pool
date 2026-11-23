@@ -23,7 +23,7 @@ def _stubs():
         raise RuntimeError("stub")
     v.generate_video = _g
     v.resume_video = _r
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
 
     b = _mod("browser")
@@ -33,7 +33,7 @@ def _stubs():
     async def _login_fail(_name):
         return False
     b.check_login_state = _login_fail
-    sys.modules["browser"] = b
+    sys.modules["dola_pool.browser"] = b
 
     pr = _mod("patchright")
     pr_api = _mod("patchright.async_api")
@@ -84,8 +84,8 @@ def _stubs():
 
 
 def test_verify_failure_keeps_profile_and_writes_state(tmp_path, monkeypatch):
-    import config
-    import cookie_login
+    from dola_pool import config
+    from dola_pool import cookie_login
 
     config.HEADLESS = True
     # 强制验证失败

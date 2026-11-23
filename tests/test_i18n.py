@@ -1,7 +1,7 @@
 """管理面板多语言：文案抽取 + 翻译文件的格式检查（缺译不算失败，占位符错了才算）。"""
 import json
 
-import i18n_tool
+import tools.i18n_tool as i18n_tool
 
 
 def test_extract_template_placeholders_and_tags():

@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +40,7 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
@@ -60,7 +60,7 @@ THROTTLED = {"ok": False, "status": "error", "login_ok": True, "replied": False,
 
 def _pool(tmp_path, monkeypatch, egress: dict[str, str], probe=None, calls=None):
     """建号池；egress 指定每个号的出口（不走真实代理表）。"""
-    import browser_pool
+    from dola_pool import browser_pool
 
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "tasks.db"))
@@ -236,8 +236,8 @@ def test_transient_generation_failure_throttles_egress(tmp_path, monkeypatch):
 
 def test_batch_probe_stops_hitting_throttled_egress(tmp_path, monkeypatch):
     """批量探测：第一个号吃了限流后，同出口其余号不再发请求，结果里写明具体原因。"""
-    import server as server_mod
-    import store as store_mod
+    from dola_pool import server as server_mod
+    from dola_pool import store as store_mod
 
     browser_pool, bp, calls = _pool(
         tmp_path, monkeypatch, {"acc1": "jp:1", "acc2": "jp:1", "acc3": "jp:1"},

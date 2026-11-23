@@ -8,8 +8,8 @@ import time
 
 import pytest
 
-import config
-import proxy_store
+from dola_pool import config
+from dola_pool import proxy_store
 
 
 IPWEB_LINES = (

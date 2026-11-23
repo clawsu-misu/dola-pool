@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from login_verification import LoginEvidence
+from dola_pool.login_verification import LoginEvidence
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -85,7 +85,7 @@ def test_fast_path_preserves_fallback_and_cleanup(monkeypatch,mode,expected,seco
         async def __aexit__(self,*a): pass
     async def launch(*a):return context
     monkeypatch.setitem(sys.modules,'patchright.async_api',SimpleNamespace(async_playwright=Playwright))
-    tree=ast.parse((ROOT/'browser.py').read_text(encoding='utf8'))
+    tree=ast.parse((ROOT/'dola_pool'/'browser.py').read_text(encoding='utf8'))
     fn=next(n for n in tree.body if isinstance(n,ast.AsyncFunctionDef) and n.name=='check_login_state')
     scope={'time':SimpleNamespace(monotonic=lambda:elapsed[0]),'launch_account_context':launch,
            'cookie_value':lambda cookies,name:next((c['value'] for c in cookies if c['name']==name),'')}

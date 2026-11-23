@@ -12,7 +12,7 @@ from test_task_deadline import _run
 
 
 def test_challenge_is_single_use_and_never_publishes_the_code():
-    from apple_login import AppleLoginControl
+    from dola_pool.apple_login import AppleLoginControl
     updates = []
 
     async def scenario():
@@ -37,7 +37,7 @@ def test_challenge_is_single_use_and_never_publishes_the_code():
 
 
 def test_cancel_clears_an_unanswered_challenge():
-    from apple_login import AppleLoginControl
+    from dola_pool.apple_login import AppleLoginControl
 
     async def scenario():
         control = AppleLoginControl(lambda **fields: None)
@@ -51,7 +51,7 @@ def test_cancel_clears_an_unanswered_challenge():
 
 
 def test_credentials_only_go_to_https_apple_domains():
-    from apple_login import apple_host, apple_form
+    from dola_pool.apple_login import apple_host, apple_form
     for url in ("https://appleid.apple.com/auth/authorize", "https://idmsa.apple.com/appleauth/auth"):
         assert apple_host(url)
     for url in ("http://appleid.apple.com", "https://appleid.apple.com.evil.test", "https://dola.com"):
@@ -100,7 +100,7 @@ class Form:
         self.step, self.values = 0, {}
 
     def locator(self, selector):
-        from apple_login import CODE_SELECTOR
+        from dola_pool.apple_login import CODE_SELECTOR
         if "role=" in selector:
             return Items()
         if selector == CODE_SELECTOR:
@@ -118,7 +118,7 @@ class Form:
 
 
 def test_apple_credentials_code_and_first_consent_complete_in_order(monkeypatch):
-    import apple_login as apple
+    from dola_pool import apple_login as apple
     form, stages, prompts = Form(), [], []
     async def cookies(*args):
         return [{"name": "sessionid", "value": "test-session"}] if form.step >= 3 else []
@@ -139,7 +139,7 @@ def test_apple_credentials_code_and_first_consent_complete_in_order(monkeypatch)
 
 
 def test_code_auto_submit_can_close_the_apple_frame(monkeypatch):
-    import apple_login as apple
+    from dola_pool import apple_login as apple
     form = Form()
     form.step = 1
     form.is_detached = lambda: True
@@ -152,7 +152,7 @@ def test_code_auto_submit_can_close_the_apple_frame(monkeypatch):
 
 @pytest.fixture
 def srv(tmp_path, monkeypatch):
-    import server
+    from dola_pool import server
     monkeypatch.setattr(server, "_admin_auth", lambda key: None)
     monkeypatch.setattr(server, "JOBS", {})
     monkeypatch.setattr(server, "APPLE_LOGINS", {})
@@ -211,7 +211,7 @@ def test_apple_requires_its_own_proxy(srv):
 
 def test_answer_endpoint_is_authenticated_and_does_not_return_secrets(srv, monkeypatch):
     server, _ = srv
-    from apple_login import AppleLoginControl
+    from dola_pool.apple_login import AppleLoginControl
     control = AppleLoginControl(lambda **kw: None)
     control.challenge_id, control.kind = "current", "code"
     server.APPLE_LOGINS["new_apple"] = control
@@ -259,7 +259,7 @@ def test_apple_source_is_not_automatically_relogged_through_google(srv, monkeypa
 
 
 def test_session_snapshot_keeps_cookie_attributes_and_does_not_restore_a_logout(tmp_path):
-    from browser import _materialize_apple_session
+    from dola_pool.browser import _materialize_apple_session
     snapshot = tmp_path / ".apple-session-cookies.json"
     cookie = {"name": "sessionid", "value": "test-session", "domain": ".dola.com", "path": "/",
               "httpOnly": True, "secure": True, "sameSite": "Lax", "expires": -1}
@@ -285,7 +285,7 @@ def test_session_snapshot_keeps_cookie_attributes_and_does_not_restore_a_logout(
 
 @pytest.mark.parametrize("outcome", ["success", "failure", "cancel"])
 def test_profile_only_enters_the_pool_after_a_completed_login(tmp_path, monkeypatch, outcome):
-    import apple_login as apple
+    from dola_pool import apple_login as apple
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(apple.proxy_store, "get_account_proxy", lambda name: {"enabled": True})
     monkeypatch.setattr(apple, "http_proxy", lambda name: "http://127.0.0.1:12345")
@@ -383,7 +383,7 @@ let api=async(url,opts)=>{if(!opts)return {jobs:{acc1:job}};posted.push(opts.bod
 
 
 def test_saved_apple_account_also_stops_when_its_proxy_binding_is_missing(tmp_path, monkeypatch):
-    import browser
+    from dola_pool import browser
     monkeypatch.chdir(tmp_path)
     profile = tmp_path / "accounts/old_apple"
     profile.mkdir(parents=True)

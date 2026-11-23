@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import config
+from dola_pool import config
 from test_auto_recover import FakePool, _run, _server, _stubs
 from test_account_throttle import _row
 from test_work_mode import _agent, _work_pool
@@ -42,7 +42,7 @@ def test_same_email_on_different_sites_is_not_a_duplicate(tmp_path, monkeypatch)
 @pytest.mark.parametrize("ready", [True, False])
 def test_second_segment_timeout_reuses_first_and_retries_only_once(tmp_path, monkeypatch, ready):
     browser_pool, pool = _work_pool(tmp_path, monkeypatch, ["acc1", "acc2", "acc3", "acc4"])
-    import work_pair
+    from dola_pool import work_pair
     calls, snapshots = [], []
     monkeypatch.setattr(config, "DOWNLOAD_DIR", str(tmp_path))
     monkeypatch.setattr(browser_pool, "ensure_web_playable", lambda path: path)
@@ -112,7 +112,7 @@ def test_daily_limit_does_not_block_dispatch_of_unused_work_quota(tmp_path, monk
 @pytest.mark.parametrize("attempts", [1, 2])
 def test_pair_restart_reuses_first_and_retains_second_attempt_limit(tmp_path, monkeypatch, attempts):
     browser_pool, pool = _work_pool(tmp_path, monkeypatch, ["acc1", "acc2", "acc3"])
-    import work_pair
+    from dola_pool import work_pair
     monkeypatch.setattr(config, "DOWNLOAD_DIR", str(tmp_path))
     monkeypatch.setattr(config, "WORK_15S_ENABLED", False)
     monkeypatch.setattr(browser_pool, "ensure_web_playable", lambda path: path)
@@ -280,7 +280,7 @@ def test_account_test_persists_conversation_and_recovers_without_resubmission(tm
 
 def test_account_test_pool_passes_original_conversation_and_marks_only_ambiguous_timeouts(tmp_path, monkeypatch):
     _, pool = _work_pool(tmp_path, monkeypatch, ["acc1"])
-    from generation_errors import PreSubmissionParametersError
+    from dola_pool.generation_errors import PreSubmissionParametersError
     conversations = []
     error = TimeoutError("发送后等待超时")
 
@@ -373,7 +373,7 @@ def test_running_service_persists_pair_context_and_recovers_earlier_attempt(tmp_
         kwargs["on_attempt_end"]("acc1", 1, time.time(), TimeoutError("工作模式等待超时"))
         kwargs["on_pair_state"](state)
         kwargs["on_account_try"]("acc2", 2)
-        from generation_errors import PreSubmissionUploadError
+        from dola_pool.generation_errors import PreSubmissionUploadError
         raise PreSubmissionUploadError("参考图上传失败")
 
     pool.generate_video = generate
@@ -442,7 +442,7 @@ def test_pool_recovery_respects_global_and_account_locks(tmp_path, monkeypatch):
         assert pool._activities[account] == "recovering"
         return {"local_path": "", "final": False}
 
-    monkeypatch.setitem(sys.modules, "video_worker_agent", SimpleNamespace(fetch_work_conversation_video=fetch))
+    monkeypatch.setitem(sys.modules, "dola_pool.video_worker_agent", SimpleNamespace(fetch_work_conversation_video=fetch))
 
     async def check():
         lock = pool._locks.setdefault("acc1", asyncio.Lock())
@@ -500,7 +500,7 @@ def test_upload_failure_is_scoped_to_real_upload_hosts(monkeypatch, host, active
                                            (None, "第一方案（推荐）")])
 def test_ai_chooses_only_existing_options_and_caches_answer(monkeypatch, reply, expected):
     _, item = session(monkeypatch, Page([]))
-    import dola_responder
+    from dola_pool import dola_responder
     calls = []
     monkeypatch.setattr(dola_responder, "enabled", lambda: True)
 

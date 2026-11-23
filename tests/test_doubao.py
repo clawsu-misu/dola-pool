@@ -14,8 +14,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
-import sites
+from dola_pool import config
+from dola_pool import sites
 
 CONFIRM = ("我将为你生成一条橘猫在窗台上晒太阳的治愈系短视频，请先确认参数：\n\n**视频生成参数确认**\n\n"
            "- **模型：** Seedance 2.0 Mini\n- **时长：** 5 秒\n- **比例：** 16:9 横屏\n\n确认后我再开始生成视频。")
@@ -40,7 +40,7 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
@@ -76,7 +76,7 @@ def test_site_of_cookies_and_state_file(tmp_path):
 
 
 def test_cookie_import_keeps_doubao_cookies():
-    import cookie_import
+    from dola_pool import cookie_import
     raw = json.dumps([{"domain": ".doubao.com", "name": "sessionid", "value": "s1", "path": "/"},
                       {"domain": ".example.com", "name": "x", "value": "y"}])
     states = cookie_import.parse_cookie_header_text(raw)
@@ -89,8 +89,8 @@ def test_cookie_import_keeps_doubao_cookies():
 # ---------------------------------------------------------------- 协议：同一份代码两个站点
 
 def test_doubao_protocol_instance_is_isolated():
-    from protocol import dola_pure_api as dola
-    from protocol import doubao_site
+    from dola_pool.protocol import dola_pure_api as dola
+    from dola_pool.protocol import doubao_site
     db = doubao_site.load()
     assert db is not dola and db.BASE == "https://www.doubao.com" and dola.BASE == "https://www.dola.com"
     assert db.AID == "497858" and dola.AID == "495671"
@@ -116,7 +116,7 @@ def test_doubao_protocol_instance_is_isolated():
 # ---------------------------------------------------------------- 话术识别
 
 def test_doubao_text_classifiers():
-    import doubao_gen as g
+    from dola_pool import doubao_gen as g
     assert g.looks_like_confirm_request(CONFIRM) and not g.looks_like_accepted(CONFIRM)
     assert g.looks_like_paid_prompt(PAID) and not g.looks_like_accepted(PAID)
     assert not g.looks_like_paid_prompt(PAID_ACCEPTED) and g.looks_like_accepted(PAID_ACCEPTED)
@@ -136,7 +136,7 @@ class _FakeDP:
     """按剧本吐会话：bot 的每条消息在我们回过 N 次之后才出现。"""
 
     def __init__(self, script, *, vid_after: int | None = None):
-        from protocol import doubao_site
+        from dola_pool.protocol import doubao_site
         self._real = doubao_site.load()
         self.script = script               # [(需要先回几次, 文本, buttons)]
         self.vid_after = vid_after
@@ -220,7 +220,7 @@ class _FakeDP:
 
 
 def _gen(monkeypatch, tmp_path, dp, model="doubao-seedance-2.0-mini", duration=5, **kwargs):
-    import doubao_gen
+    from dola_pool import doubao_gen
     state = tmp_path / "cookie_state.json"
     state.write_text(json.dumps({"cookies_list": [{"name": "sessionid", "value": "s", "domain": ".doubao.com"}],
                                  "cookies": {"sessionid": {"value": "s", "domain": ".doubao.com", "path": "/"}}}))
@@ -245,7 +245,7 @@ def test_flow_confirm_then_paid_then_video(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize('available', [True, False])
 def test_doubao_normal_generation_follows_link_delivery_and_download_fallback(monkeypatch, tmp_path, available):
-    import video_link
+    from dola_pool import video_link
     monkeypatch.setattr(config, 'VIDEO_DELIVERY', 'link')
     dp = _FakeDP([], vid_after=0)
     original = dp.fetch_single_chain
@@ -282,7 +282,7 @@ def test_confirm_reply_goes_to_the_video_skill(monkeypatch, tmp_path):
 
 
 def test_confirm_taken_by_plain_chat_ends_without_waiting(monkeypatch, tmp_path):
-    import doubao_gen
+    from dola_pool import doubao_gen
     monkeypatch.setattr(config, "DOUBAO_ALLOW_PAID", True)
     plain = {"agent_name": "豆包", "agent_intention": "seed_main"}
     dp = _FakeDP([(0, CONFIRM, [], {"agent_name": "Agent-Creation", "use_creation": "1"}),
@@ -293,7 +293,7 @@ def test_confirm_taken_by_plain_chat_ends_without_waiting(monkeypatch, tmp_path)
 
 
 def test_flow_paid_disabled_raises_quota_without_reply(monkeypatch, tmp_path):
-    import doubao_gen
+    from dola_pool import doubao_gen
     monkeypatch.setattr(config, "DOUBAO_ALLOW_PAID", False)
     dp = _FakeDP([(0, CONFIRM, []), (1, PAID, [])])
     with pytest.raises(doubao_gen.DoubaoQuotaError):
@@ -302,7 +302,7 @@ def test_flow_paid_disabled_raises_quota_without_reply(monkeypatch, tmp_path):
 
 
 def test_flow_free_account_model_locked_never_confirms_downgrade(monkeypatch, tmp_path):
-    import doubao_gen
+    from dola_pool import doubao_gen
     confirm25 = CONFIRM.replace("Seedance 2.0 Mini", "Seedance 2.5")
     dp = _FakeDP([(0, confirm25, []), (1, LOCKED, [])])
     with pytest.raises(doubao_gen.DoubaoModelLockedError):
@@ -311,7 +311,7 @@ def test_flow_free_account_model_locked_never_confirms_downgrade(monkeypatch, tm
 
 
 def test_flow_duration_changed_by_upstream_is_not_confirmed(monkeypatch, tmp_path):
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     dp = _FakeDP([(0, CONFIRM.replace("5 秒", "15 秒"), [])])
     with pytest.raises(pure_api_gen.UnsupportedDurationError):
         _gen(monkeypatch, tmp_path, dp)
@@ -319,7 +319,7 @@ def test_flow_duration_changed_by_upstream_is_not_confirmed(monkeypatch, tmp_pat
 
 
 def test_duration_range_checked_before_submit(monkeypatch, tmp_path):
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     with pytest.raises(pure_api_gen.UnsupportedDurationError):
         _gen(monkeypatch, tmp_path, _FakeDP([]), model="doubao-seedance-2.0-mini", duration=20)
 
@@ -327,7 +327,7 @@ def test_duration_range_checked_before_submit(monkeypatch, tmp_path):
 # ---------------------------------------------------------------- 号池派单
 
 def _pool(tmp_path, monkeypatch, dola=("acc1",), doubao=("db1", "db2")):
-    import browser_pool
+    from dola_pool import browser_pool
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     monkeypatch.setattr(config, "DAILY_LIMIT", 4)
     monkeypatch.setattr(browser_pool, "DAILY_LIMIT", 4)
@@ -361,7 +361,7 @@ def test_list_accounts_marks_doubao_and_groups(tmp_path, monkeypatch):
 
 
 def test_dispatch_routes_by_site_and_tier(tmp_path, monkeypatch):
-    import doubao_gen
+    from dola_pool import doubao_gen
     browser_pool, bp = _pool(tmp_path, monkeypatch)
     calls = []
 
@@ -428,7 +428,7 @@ def test_doubao_model_without_doubao_accounts_fails_fast(tmp_path, monkeypatch):
 
 
 def test_doubao_quota_error_marks_daily_limit(tmp_path, monkeypatch):
-    import doubao_gen
+    from dola_pool import doubao_gen
     _browser_pool, bp = _pool(tmp_path, monkeypatch, doubao=("db1", "db2"))
 
     async def fake(account, prompt, ratio, duration, model, **_k):
@@ -475,7 +475,7 @@ def _seven_day_text(account: str, days: float = 2.0) -> tuple[str, float]:
 
 
 def test_quota_recover_at_reads_the_beijing_time():
-    import doubao_gen
+    from dola_pool import doubao_gen
     now = 1793692800.0                                   # 2026-11-03 16:00 北京时间
     at = doubao_gen.quota_recover_at("近 7 天额度已用完，预计11月5日 01:59 恢复。", now=now)
     assert at == 1793815140.0                            # 2026-11-05 01:59 +08:00
@@ -485,7 +485,7 @@ def test_quota_recover_at_reads_the_beijing_time():
 
 
 def test_seven_day_quota_locks_until_the_stated_time(tmp_path, monkeypatch):
-    import doubao_gen
+    from dola_pool import doubao_gen
     _browser_pool, bp = _pool(tmp_path, monkeypatch, doubao=("db1", "db2"))
     text, _ = _seven_day_text("db1")
 
@@ -504,7 +504,7 @@ def test_seven_day_quota_locks_until_the_stated_time(tmp_path, monkeypatch):
 def test_member_model_fails_fast_when_every_member_is_locked(tmp_path, monkeypatch):
     # 2026-11-03：唯一的会员号 acc151 近 7 天额度用完，2.5 任务一轮轮「稍后再来一轮」排到时限
     import time as _t
-    import doubao_gen
+    from dola_pool import doubao_gen
     _browser_pool, bp = _pool(tmp_path, monkeypatch, doubao=("db1",))
     text, _ = _seven_day_text("db1")
     calls = []

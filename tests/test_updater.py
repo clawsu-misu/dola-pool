@@ -5,8 +5,8 @@ import time
 
 import pytest
 
-import config
-import updater
+from dola_pool import config
+from dola_pool import updater
 from test_task_deadline import _run
 
 
@@ -136,8 +136,8 @@ def test_finished_agent_status_is_reported_after_the_request_is_gone(upd):
 # ---------------------------------------------------------------- server 集成
 
 def test_new_tasks_wait_while_draining(upd, tmp_path, monkeypatch):
-    import server
-    from store import TaskStore
+    from dola_pool import server
+    from dola_pool.store import TaskStore
     monkeypatch.setattr(server, "store", TaskStore(str(tmp_path / "tasks.db")))
     server.store.create("video_q1", "seedance-2.0-fast", "p", "16:9", 5)
     install_agent(upd)
@@ -153,7 +153,7 @@ def test_new_tasks_wait_while_draining(upd, tmp_path, monkeypatch):
 
 
 def test_only_owner_can_start_an_update(monkeypatch):
-    import server
+    from dola_pool import server
     monkeypatch.setattr(server, "_admin_auth", lambda key: None)
     monkeypatch.setitem(server.ADMIN_SESSIONS, "k-admin", {"username": "ops", "role": "admin"})
     monkeypatch.setitem(server.ADMIN_SESSIONS, "k-owner", {"username": "admin", "role": "owner"})
@@ -164,8 +164,8 @@ def test_only_owner_can_start_an_update(monkeypatch):
 
 
 def test_update_loop_busy_counts_running_tasks_and_jobs(tmp_path, monkeypatch):
-    import server
-    from store import TaskStore
+    from dola_pool import server
+    from dola_pool.store import TaskStore
     monkeypatch.setattr(server, "store", TaskStore(str(tmp_path / "tasks.db")))
     server.store.create("video_r1", "seedance-2.0-fast", "p", "16:9", 5)
     server.store.update("video_r1", status="processing")

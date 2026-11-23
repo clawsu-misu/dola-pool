@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 @pytest.fixture(autouse=True)
@@ -39,7 +39,7 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
@@ -58,7 +58,7 @@ THROTTLED = {"ok": False, "status": "error", "login_ok": True, "replied": False,
 
 
 def _pool(tmp_path, monkeypatch, egress: dict, probe: dict | None = None):
-    import browser_pool
+    from dola_pool import browser_pool
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     monkeypatch.setattr(config, "DAILY_LIMIT", 4)
     monkeypatch.setattr(browser_pool, "DAILY_LIMIT", 4)
@@ -198,7 +198,7 @@ class _Poll:
 
 
 def _fake_dola(texts):
-    from protocol import dola_pure_api as real
+    from dola_pool.protocol import dola_pure_api as real
     return types.SimpleNamespace(
         inspect_video_once=lambda *a, **k: _Poll("pending", texts),
         is_prompt_echo_text=real.is_prompt_echo_text,
@@ -209,7 +209,7 @@ def _fake_dola(texts):
 
 
 def test_30s_capped_by_upstream_fails_immediately(monkeypatch):
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     monkeypatch.setattr(config, "ALLOW_30S_PAIR", False)
     dola = _fake_dola(["视频生成目前支持 4 到 15 秒的时长。我将按默认 5 秒为你生成。"])
     started = time.time()
@@ -221,7 +221,7 @@ def test_30s_capped_by_upstream_fails_immediately(monkeypatch):
 
 
 def test_first_ack_reports_upstream_note_and_wait():
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     texts = ["视频生成目前支持 4 到 15 秒。我按你指定的 9:16 比例生成 5 秒版本。",
              "本次使用 **Dreamina Seedance 2.5** 生成，将消耗 2 个视频生成额度，预计等待 45 分钟。"]
     dola = _fake_dola(texts)
@@ -240,7 +240,7 @@ def test_first_ack_reports_upstream_note_and_wait():
 
 def test_old_style_on_poll_still_works():
     """只收一个参数的老回调不能被新增的原话回传弄崩。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     dola = _fake_dola(["预计等待 10 分钟"])
     ticks = []
     pure_api_gen._await_first_ack(dola=dola, session=None, ctx={}, account="acc1",
@@ -251,7 +251,7 @@ def test_old_style_on_poll_still_works():
 
 def test_30s_cap_to_15s_waits_but_not_forever(monkeypatch):
     """「按最接近的 15 秒生成」上游可能真会出片（或出两段可拼接），先等；等到宽限期仍没片才失败。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     monkeypatch.setattr(config, "ALLOW_30S_PAIR", False)
     monkeypatch.setattr(config, "CAP_30S_GRACE_SECONDS", 1)
     dola = _fake_dola(["视频生成目前支持 4 到 15 秒。我将按最接近的支持时长 15 秒生成。"])
@@ -340,7 +340,7 @@ def test_old_streak_expires(tmp_path, monkeypatch):
 
 
 def test_human_secs():
-    import browser_pool
+    from dola_pool import browser_pool
     assert browser_pool._human_secs(1800) == "30 分钟"
     assert browser_pool._human_secs(7200) == "2 小时"
     assert browser_pool._human_secs(5400) == "1.5 小时"
@@ -373,8 +373,8 @@ def test_test_generate_warns_when_quota_short(tmp_path, monkeypatch):
 
 
 def test_test_generate_endpoint_requires_confirmation(tmp_path, monkeypatch):
-    import server as server_mod
-    import store as store_mod
+    from dola_pool import server as server_mod
+    from dola_pool import store as store_mod
     from fastapi import HTTPException
     browser_pool, bp, _ = _pool(tmp_path, monkeypatch, {"acc1": "a"})
     monkeypatch.setattr(bp, "_proxy_url_for", lambda name: "")                  # 没绑代理 → 会提醒
@@ -409,8 +409,8 @@ def test_test_generate_endpoint_requires_confirmation(tmp_path, monkeypatch):
 # ---------------------------------------------------------------- 上游宣布的秒数 / 按号记录回执
 
 def test_announced_seconds_parsing():
-    import pure_api_gen
-    from protocol import dola_pure_api as real
+    from dola_pool import pure_api_gen
+    from dola_pool.protocol import dola_pure_api as real
     f = lambda t: pure_api_gen._announced_seconds(real, [t])  # noqa: E731
     assert f("我将为您生成一个5秒的视频。") == 5
     assert f("视频生成目前支持 4 到 15 秒的时长。我将按默认 5 秒为你生成。") == 5
@@ -422,7 +422,7 @@ def test_announced_seconds_parsing():
 
 def test_30s_announced_5s_fails_even_without_cap_wording(monkeypatch):
     """线上 2026-10-14：「我将为您生成一个5秒的视频…预计等待 45 分钟」——没有「4~15 秒」字样也要立即失败。"""
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     monkeypatch.setattr(config, "ALLOW_30S_PAIR", False)
     dola = _fake_dola(["我将为您生成一个5秒的视频。",
                        "本次使用 **Dreamina Seedance 2.5** 生成，将消耗 2 个视频生成额度，预计等待 45 分钟。"])
@@ -434,8 +434,8 @@ def test_30s_announced_5s_fails_even_without_cap_wording(monkeypatch):
 
 def test_run_task_keeps_each_accounts_note(tmp_path, monkeypatch):
     """换号时每个号的 dola 原话都留着（面板折叠显示），预计等待按当前号重置。"""
-    import server as server_mod
-    import store as store_mod
+    from dola_pool import server as server_mod
+    from dola_pool import store as store_mod
     monkeypatch.setattr(config, "DOWNLOAD_DIR", str(tmp_path))
     out = tmp_path / "x.mp4"
     out.write_bytes(b"fake")
@@ -464,8 +464,8 @@ def test_run_task_keeps_each_accounts_note(tmp_path, monkeypatch):
 
 def test_test_generate_rejects_15s_on_seedance_20(tmp_path, monkeypatch):
     """2.0-fast 网页只给 4～10 秒，纯协议直接请求 15 秒被 dola 拒绝（2026-10-30 实测）：测试生成也要先拦下。"""
-    import server as server_mod
-    import store as store_mod
+    from dola_pool import server as server_mod
+    from dola_pool import store as store_mod
     from fastapi import HTTPException
     browser_pool, bp, _ = _pool(tmp_path, monkeypatch, {"acc1": "a"})
     started = []

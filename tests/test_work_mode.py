@@ -4,8 +4,8 @@ import runpy
 
 import pytest
 
-import config
-import work_reply as wr
+from dola_pool import config
+from dola_pool import work_reply as wr
 from test_account_throttle import _pool, _row
 from test_task_deadline import _run
 
@@ -106,7 +106,7 @@ def _dispatch(bp, account, model="seedance-2.0", duration=15):
 def _agent(monkeypatch, fake):
     import types
     import sys
-    monkeypatch.setitem(sys.modules, "video_worker_agent", types.SimpleNamespace(generate_work_video=fake))
+    monkeypatch.setitem(sys.modules, "dola_pool.video_worker_agent", types.SimpleNamespace(generate_work_video=fake))
 
 
 def test_work_video_locks_only_the_work_quota_for_seven_days(tmp_path, monkeypatch):
@@ -334,14 +334,14 @@ def test_only_20_at_30_seconds_is_a_work_pair(monkeypatch, model, duration, expe
 
 
 def test_continue_prompt_points_at_the_reference_frame():
-    import work_pair
+    from dola_pool import work_pair
     text = work_pair.continue_prompt("  橘猫在沙滩上走  ")
     assert text.startswith("接着参考图这一刻继续：橘猫在沙滩上走") and "镜头运动" in text
 
 
 @pytest.mark.parametrize("audio", [True, False])
 def test_concat_fits_the_second_segment_into_the_first_size(audio):
-    import work_pair
+    from dola_pool import work_pair
     args = work_pair.concat_args("a.mp4", "b.mp4", "o.mp4", 960, 960, audio)
     graph = args[args.index("-filter_complex") + 1]
     assert graph.count("scale=960:960") == 2 and "pad=960:960" in graph
@@ -359,7 +359,7 @@ def _make_clip(path, color, seconds, audio):
 
 @pytest.mark.skipif(not __import__("shutil").which("ffmpeg"), reason="需要 ffmpeg")
 def test_real_frame_and_concat(tmp_path):
-    import work_pair
+    from dola_pool import work_pair
     first, second = tmp_path / "a.mp4", tmp_path / "b.mp4"
     _make_clip(first, "red", 2, True)
     _make_clip(second, "blue", 2, False)            # 第二段没声音、尺寸一样也能拼
@@ -376,7 +376,7 @@ def test_real_frame_and_concat(tmp_path):
 
 def test_pair_runs_two_segments_on_two_accounts_and_stitches(tmp_path, monkeypatch):
     browser_pool, bp = _work_pool(tmp_path, monkeypatch, ["acc1", "acc2"])
-    import work_pair
+    from dola_pool import work_pair
     calls, polls = [], []
 
     async def fake(account, prompt, ratio, **kwargs):
@@ -407,7 +407,7 @@ def test_pair_runs_two_segments_on_two_accounts_and_stitches(tmp_path, monkeypat
 
 def test_second_segment_failure_says_the_first_quota_is_spent(tmp_path, monkeypatch):
     browser_pool, bp = _work_pool(tmp_path, monkeypatch, ["acc1", "acc2"])
-    import work_pair
+    from dola_pool import work_pair
     calls = []
 
     async def fake(account, prompt, ratio, **kwargs):

@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load(*names):
-    tree = ast.parse((ROOT / "video_worker_ui.py").read_text(encoding="utf-8"))
+    tree = ast.parse((ROOT / "dola_pool" / "video_worker_ui.py").read_text(encoding="utf-8"))
     body = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
     scope = {"re": re}
     exec(compile(ast.Module(body=body, type_ignores=[]), "worker-test", "exec"), scope)
@@ -16,7 +16,7 @@ def _load(*names):
 
 
 def test_ai_note_and_prompt_are_typed_as_one_line():
-    import prompt_context
+    from dola_pool import prompt_context
     scope = _load("single_line_prompt", "type_prompt")
     joined = prompt_context.submission_prompt("小猫在草地上奔跑", "素材来源说明：参考图由 AI 生成。")
     typed = []

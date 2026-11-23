@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.testclient import TestClient
 
-from compress import GzipTextMiddleware
+from dola_pool.compress import GzipTextMiddleware
 
 
 def make_client(tmp_path):

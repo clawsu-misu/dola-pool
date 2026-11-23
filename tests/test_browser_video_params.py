@@ -3,9 +3,9 @@ import re
 
 import pytest
 
-from browser_video_params import (MODEL_BUTTON, PARAMS_TRIGGER, _select_slider, duration_labels,
+from dola_pool.browser_video_params import (MODEL_BUTTON, PARAMS_TRIGGER, _select_slider, duration_labels,
                                   select_video_parameters, summary_duration)
-from generation_errors import PreSubmissionParameterTimeout, PreSubmissionParametersError
+from dola_pool.generation_errors import PreSubmissionParameterTimeout, PreSubmissionParametersError
 
 
 def run(coro):
@@ -204,7 +204,7 @@ def test_generic_parameter_failure_names_step_without_browser_text():
 
 
 def test_video_mode_requires_model_or_params_control():
-    from browser_video_params import video_mode_ready
+    from dola_pool.browser_video_params import video_mode_ready
     class Loc:
         def __init__(self, n): self.n = n
         async def count(self): return self.n

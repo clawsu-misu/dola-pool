@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 @pytest.fixture(autouse=True)
@@ -25,7 +25,7 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
     yield
 
@@ -39,7 +39,7 @@ def _run(coro):
 
 
 def _pool(tmp_path, monkeypatch, names=("acc1", "acc2")):
-    import browser_pool
+    from dola_pool import browser_pool
 
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     monkeypatch.setattr(config, "DAILY_LIMIT", 4)
@@ -58,7 +58,7 @@ def _pool(tmp_path, monkeypatch, names=("acc1", "acc2")):
 
 def test_no_ack_marks_account_abnormal_and_switches(tmp_path, monkeypatch):
     browser_pool, bp = _pool(tmp_path, monkeypatch)
-    from pure_api_gen import AbnormalNoAckError
+    from dola_pool.pure_api_gen import AbnormalNoAckError
 
     calls = []
 
@@ -100,7 +100,7 @@ def test_abnormal_account_is_not_dispatched(tmp_path, monkeypatch):
 
 
 def test_no_ack_seconds_default_is_5_minutes():
-    import pure_api_gen
+    from dola_pool import pure_api_gen
     assert config.NO_ACK_SECONDS == 300
     assert pure_api_gen.NO_ACK_SECONDS == config.NO_ACK_SECONDS
     assert "请重试" in pure_api_gen.ABNORMAL_RETRY_HINT

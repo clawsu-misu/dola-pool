@@ -31,14 +31,14 @@ def _stubs():
 
     v.generate_video = _g
     v.resume_video = _r
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
     yield
 
 
 def _pool(tmp_path):
-    import browser_pool
-    import config
+    from dola_pool import browser_pool
+    from dola_pool import config
     db = tmp_path / "pool_usage.db"
     config.POOL_DB_PATH = str(db)
     browser_pool.DAILY_LIMIT = 99
@@ -88,7 +88,7 @@ def test_clear_expired_rate_limits_commits_even_with_zero_rows(tmp_path):
 def test_write_still_possible_after_full_panel_flow(tmp_path, monkeypatch):
     """面板加载账号页的完整路径（list_accounts + engine 快照）之后仍可写库。"""
     pool, db = _pool(tmp_path)
-    import proxy_store
+    from dola_pool import proxy_store
     monkeypatch.setattr(proxy_store, "DB_PATH", Path(db))
     proxy_store._ready_paths.clear()
 

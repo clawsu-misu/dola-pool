@@ -38,7 +38,7 @@ def _stubs():
 
     v.generate_video = _gen
     v.resume_video = _gen
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
 
     yield
 
@@ -59,11 +59,11 @@ def _upload(filename: str, data: bytes) -> UploadFile:
 
 
 def _to_raw(form: FormData, tmp_path) -> dict:
-    import config
+    from dola_pool import config
 
     config.DB_PATH = str(tmp_path / "tasks.db")
     config.POOL_DB_PATH = str(tmp_path / "pool_usage.db")
-    import server
+    from dola_pool import server
 
     # 注意：不要用 asyncio.run() —— 它会关掉主线程的默认事件循环，
     # 而仓库里其它测试用的是 asyncio.get_event_loop()，会被带崩。
@@ -77,11 +77,11 @@ def _to_raw(form: FormData, tmp_path) -> dict:
 def test_cors_middleware_is_installed(tmp_path):
     from fastapi.middleware.cors import CORSMiddleware
 
-    import config
+    from dola_pool import config
 
     config.DB_PATH = str(tmp_path / "tasks.db")
     config.POOL_DB_PATH = str(tmp_path / "pool_usage.db")
-    import server
+    from dola_pool import server
 
     assert any(m.cls is CORSMiddleware for m in server.app.user_middleware)
 
@@ -129,11 +129,11 @@ def test_first_frame_maps_to_reference_image(tmp_path):
 
 
 def test_data_url_from_upload_defaults_to_png(tmp_path):
-    import config
+    from dola_pool import config
 
     config.DB_PATH = str(tmp_path / "tasks.db")
     config.POOL_DB_PATH = str(tmp_path / "pool_usage.db")
-    import server
+    from dola_pool import server
 
     assert server._data_url_from_upload("noext", b"x").startswith("data:image/png;base64,")
     assert server._data_url_from_upload("a.WEBP", b"x").startswith("data:image/webp;base64,")

@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from generation_errors import UpstreamGenerationFailed, UpstreamReplyError
-from upstream_reply import final_generation_failure
+from dola_pool.generation_errors import UpstreamGenerationFailed, UpstreamReplyError
+from dola_pool.upstream_reply import final_generation_failure
 from test_browser_poll import poll_messages, text_block
 from test_task_deadline import _pool, _run
 from test_task_ui_regressions import ROOT, load_worker_function
@@ -20,7 +20,7 @@ def load_worker_def(name, **bindings):
     Other test modules replace sys.modules['video_worker_ui'] with stubs, so never import it here.
     """
     import ast
-    tree = ast.parse((ROOT / 'video_worker_ui.py').read_text(encoding='utf-8'))
+    tree = ast.parse((ROOT / 'dola_pool' / 'video_worker_ui.py').read_text(encoding='utf-8'))
     fn = next(n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name)
     scope = {'asyncio': asyncio, 'time': time, **bindings}
     exec(compile(ast.Module(body=[fn], type_ignores=[]), 'worker-test', 'exec'), scope)
@@ -28,7 +28,7 @@ def load_worker_def(name, **bindings):
 
 
 def _region_check():
-    from generation_errors import RegionRestrictedError
+    from dola_pool.generation_errors import RegionRestrictedError
     return load_worker_def('raise_if_region_restricted', RegionRestrictedError=RegionRestrictedError,
                            REGION_RESTRICTED_PATH='/security/region-restricted')
 
@@ -87,7 +87,7 @@ def test_content_refusal_card_is_final_but_not_retryable():
 def _worker_regex(name):
     """A module-level regex from the real worker source (no import: tests stub that module)."""
     import ast
-    tree = ast.parse((ROOT / 'video_worker_ui.py').read_text(encoding='utf-8'))
+    tree = ast.parse((ROOT / 'dola_pool' / 'video_worker_ui.py').read_text(encoding='utf-8'))
     node = next(n for n in tree.body if isinstance(n, ast.Assign) and getattr(n.targets[0], 'id', '') == name)
     scope = {'re': re}
     exec(compile(ast.Module(body=[node], type_ignores=[]), 'worker-test', 'exec'), scope)
@@ -95,7 +95,7 @@ def _worker_regex(name):
 
 
 def _poll_fn(responses, downloads=None):
-    from browser_feedback import emit
+    from dola_pool.browser_feedback import emit
     class Context:
         async def cookies(self, *a): return []
     class Page:
@@ -269,7 +269,7 @@ def test_retry_disabled_by_config(tmp_path, monkeypatch):
 # ---- pre-submission: same-account upload retry and region-restricted pages ----
 
 def _upload_fn(outcomes, url='https://www.dola.com/chat', logged_out=False, retries=1):
-    from generation_errors import PreSubmissionUploadError, RegionRestrictedError
+    from dola_pool.generation_errors import PreSubmissionUploadError, RegionRestrictedError
     class LoginExpiredError(Exception): pass
     raise_if_region_restricted = _region_check()
     calls = {'upload': 0, 'reload': 0, 'mode': 0}
@@ -286,7 +286,7 @@ def _upload_fn(outcomes, url='https://www.dola.com/chat', logged_out=False, retr
         def __init__(self): self.url = 'https://www.dola.com/chat'
         async def goto(self, *a, **kw): calls['reload'] += 1; self.url = url
         async def wait_for_timeout(self, ms): pass
-    from browser_feedback import emit
+    from dola_pool.browser_feedback import emit
     fn = load_worker_def('upload_with_retry', attach_reference_images=attach, enter_video_mode=enter,
         dismiss_popups=popups, is_logged_out=is_out, emit_feedback=emit,
         raise_if_region_restricted=raise_if_region_restricted, LoginExpiredError=LoginExpiredError,
@@ -295,7 +295,7 @@ def _upload_fn(outcomes, url='https://www.dola.com/chat', logged_out=False, retr
 
 
 def test_upload_failure_reloads_and_retries_same_account():
-    from generation_errors import UploadRouteError
+    from dola_pool.generation_errors import UploadRouteError
     err = UploadRouteError('imagex-ap-southeast-1.bytevcloudapi.com', 'net::ERR_FAILED')
     fn, page, calls, *_ = _upload_fn([err, None])
     notes = []
@@ -305,7 +305,7 @@ def test_upload_failure_reloads_and_retries_same_account():
 
 
 def test_upload_retry_is_bounded_then_raises_for_account_switch():
-    from generation_errors import PreSubmissionUploadError as PreErr
+    from dola_pool.generation_errors import PreSubmissionUploadError as PreErr
     fn, page, calls, *_ = _upload_fn([PreErr('x'), PreErr('y')])
     with pytest.raises(PreErr, match='y'):
         _run(fn(page, 'acc13', ['ref.png']))
@@ -313,7 +313,7 @@ def test_upload_retry_is_bounded_then_raises_for_account_switch():
 
 
 def test_reload_into_region_restricted_page_stops_with_region_error():
-    from generation_errors import PreSubmissionUploadError as PreErr
+    from dola_pool.generation_errors import PreSubmissionUploadError as PreErr
     fn, page, calls, _, _, RegionErr, _ = _upload_fn(
         [PreErr('x'), None], url='https://www.dola.com/security/region-restricted')
     with pytest.raises(RegionErr):
@@ -322,7 +322,7 @@ def test_reload_into_region_restricted_page_stops_with_region_error():
 
 
 def test_region_restricted_rotates_dynamic_exit_and_never_marks_login(tmp_path, monkeypatch):
-    from generation_errors import RegionRestrictedError
+    from dola_pool.generation_errors import RegionRestrictedError
     module, bp = _pool(tmp_path, monkeypatch, ('acc24', 'acc13'))
     rotated = []
     monkeypatch.setattr(module.proxy_store, 'rotate_account_session',
@@ -344,7 +344,7 @@ def test_region_restricted_rotates_dynamic_exit_and_never_marks_login(tmp_path, 
 
 
 def test_login_check_reports_region_page_instead_of_login_expiry():
-    from generation_errors import RegionRestrictedError
+    from dola_pool.generation_errors import RegionRestrictedError
     raise_if_region_restricted = _region_check()
     page = SimpleNamespace(url='https://www.dola.com/security/region-restricted?from=chat')
     with pytest.raises(RegionRestrictedError, match='地区'):

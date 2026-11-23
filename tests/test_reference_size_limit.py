@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-import config
-import media
+from dola_pool import config
+from dola_pool import media
 
 
 @pytest.mark.parametrize('size', [16 * 1024 * 1024, 20 * 1024 * 1024, 20 * 1024 * 1024 + 1])

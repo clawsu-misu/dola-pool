@@ -14,7 +14,7 @@ ok(){ printf '\033[32m[✓]\033[0m %s\n' "$*"; }
 DOLA_DIR="${DOLA_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 DOLA_SERVICE="${DOLA_SERVICE:-dola-pool}"
 DOLA_REPO_SLUG="${DOLA_REPO_SLUG:-Roins-hub/dola-pool}"
-[ -f "$DOLA_DIR/server.py" ] || die "$DOLA_DIR 不是 dola-pool 目录"
+[ -f "$DOLA_DIR/dola_pool/server.py" ] || die "$DOLA_DIR 不是 dola-pool 目录"
 systemctl cat "$DOLA_SERVICE" >/dev/null 2>&1 || die "systemd 里没有服务 $DOLA_SERVICE（用 DOLA_SERVICE=xxx 指定）"
 command -v python3 >/dev/null || die "缺少 python3"
 

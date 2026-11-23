@@ -152,10 +152,10 @@ def load_agent(monkeypatch):
         return False
     noop = lambda *a, **k: None
     stubs = {
-        "browser": SimpleNamespace(cookie_value=lambda cookies, name: "t", launch_account_context=noop,
-                                   cloak_proxy_settings=lambda url: {"server": url, "bypass": "*.upload"}),
-        "video_worker": SimpleNamespace(RiskControlError=RiskControlError, _download=noop),
-        "video_worker_ui": SimpleNamespace(
+        "dola_pool.browser": SimpleNamespace(cookie_value=lambda cookies, name: "t", launch_account_context=noop,
+                                             cloak_proxy_settings=lambda url: {"server": url, "bypass": "*.upload"}),
+        "dola_pool.video_worker": SimpleNamespace(RiskControlError=RiskControlError, _download=noop),
+        "dola_pool.video_worker_ui": SimpleNamespace(
             LoginExpiredError=LoginExpiredError, dismiss_popups=noop, fetch_higher_bitrate_url=noop,
             is_logged_out=logged_in, raise_if_region_restricted=noop, find_captcha_frame=noop,
             solve_slider=noop, AccountLimitedError=AccountLimitedError,
@@ -164,7 +164,7 @@ def load_agent(monkeypatch):
     }
     for name, stub in stubs.items():
         monkeypatch.setitem(sys.modules, name, stub)
-    path = Path(__file__).resolve().parent.parent / "video_worker_agent.py"
+    path = Path(__file__).resolve().parent.parent / "dola_pool" / "video_worker_agent.py"
     spec = importlib.util.spec_from_file_location("video_worker_agent_under_test", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -220,7 +220,7 @@ def test_thinking_or_generating_is_never_answered(monkeypatch):
 
 
 def test_delegated_video_keeps_waiting_after_a_progress_tool_and_finished_reply(monkeypatch):
-    from work_reply import chain_messages
+    from dola_pool.work_reply import chain_messages
     working = bot('收到确认。视频已经在后台生成中，请稍等。', tool=True)
     message = chain_messages(working)[0]
     message['content_block'].append({'content': {'complex_task_block': {'thread_id': 'original-thread', 'status': 4}}})
@@ -672,7 +672,7 @@ def test_address_lookup_is_retried_after_the_video_exists(monkeypatch):
     monkeypatch.setattr(agent, "fetch_higher_bitrate_url", lookup)
     monkeypatch.setattr(agent, "_download", download)
     monkeypatch.setattr(agent.asyncio, "sleep", no_wait)
-    monkeypatch.setitem(sys.modules, "video_link", SimpleNamespace(enabled=lambda: False))
+    monkeypatch.setitem(sys.modules, "dola_pool.video_link", SimpleNamespace(enabled=lambda: False))
     assert _run(agent._deliver("acc1", "{}", "1", None))["local_path"] == "/tmp/x.mp4"
     assert len(calls) == 3
 

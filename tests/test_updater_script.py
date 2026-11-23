@@ -128,6 +128,23 @@ def test_non_git_install_updates_from_the_source_tarball(tmp_path):
     assert version_of(app) == "1.1.0" and (app / "dola.env").read_text() == "DOLA_SECRET=keep\n"
 
 
+def test_tarball_update_removes_modules_the_new_version_dropped(tmp_path):
+    origin = make_origin(tmp_path)
+    app = tmp_path / "app"
+    sh(f"mkdir -p {app} && git -C {origin} archive v1.0.0 | tar -x -C {app}")
+    (app / "dola.env").write_text("DOLA_SECRET=keep\n")
+    (app / "legacy_module.py").write_text("X = 1\n")
+    (app / "protocol").mkdir()
+    (app / "protocol" / "old.py").write_text("Y = 2\n")
+    sh(f"git -C {origin} archive --prefix=dola-pool-1.1.0/ v1.1.0 | gzip > {tmp_path}/v1.1.0.tgz")
+    env = make_env(tmp_path, app, origin, TARBALL_URL=f"file://{tmp_path}/%s.tgz")
+    result = run_updater(env)
+    status = agent_status(tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert status["state"] == "done" and version_of(app) == "1.1.0"
+    assert not (app / "legacy_module.py").exists() and not (app / "protocol").exists()
+
+
 def test_nothing_to_do_without_a_ready_request(tmp_path):
     origin = make_origin(tmp_path)
     app = git_app(tmp_path, origin)

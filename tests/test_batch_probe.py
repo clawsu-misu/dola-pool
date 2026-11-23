@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import config
+from dola_pool import config
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +30,7 @@ def _stubs():
         setattr(v, exc, type(exc, (Exception,), {}))
     v.generate_video = _no
     v.resume_video = _no
-    sys.modules["video_worker_ui"] = v
+    sys.modules["dola_pool.video_worker_ui"] = v
     yield
 
 
@@ -44,9 +44,9 @@ def _run(coro):
 
 def _setup(tmp_path, monkeypatch, probe_map):
     """建 3 个账号 + server/browser_pool，把 hello_probe 换成按账号返回的假实现。"""
-    import browser_pool
-    import server as server_mod
-    import store as store_mod
+    from dola_pool import browser_pool
+    from dola_pool import server as server_mod
+    from dola_pool import store as store_mod
 
     monkeypatch.setattr(config, "POOL_DB_PATH", str(tmp_path / "pool.db"))
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "tasks.db"))
