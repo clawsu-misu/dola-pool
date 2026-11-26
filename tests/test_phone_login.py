@@ -186,10 +186,13 @@ def test_phone_job_uses_its_flow_and_marks_the_source(srv, monkeypatch):
     async def flow(name, phone, control, country):
         assert events[0][0] == "bind" and server.JOBS[name]["source"] == "phone"
         assert (phone, country) == ("2025551234", "+1")
+        assert server.JOBS[name]["phone"] == "2025551234"
+        assert server.JOBS[name]["sms_link"] == "https://sms.example.com/r"
         events.append(("phone", name))
     monkeypatch.setattr(server, "phone_login_flow", flow)
     _run(server._run_add_job("new_phone", "", "", "", proxy_id="p1",
-                             login_method="phone", phone="2025551234", country="+1"))
+                             login_method="phone", phone="2025551234", country="+1",
+                             sms_link="https://sms.example.com/r"))
     assert server.JOBS["new_phone"]["status"] == "success"
     assert ("source", "phone") in events
     assert not server.APPLE_LOGINS and not server.ADD_SEM_HOLDER["what"]
@@ -203,11 +206,22 @@ def test_add_accepts_phone_without_email_or_credentials(srv, monkeypatch):
     monkeypatch.setattr(server, "_run_add_job", flow)
     async def scenario():
         body = server.AccountAdd(name="new_phone", phone="2025551234",
-                                 login_method="phone", proxy_id="p1")
+                                 login_method="phone", proxy_id="p1",
+                                 sms_link="https://sms.example.com/record?token=DOLtest")
         return await server.admin_account_add(body)
     assert _run(scenario())["job"] == "running"
     assert received["login_method"] == "phone" and received["phone"] == "2025551234"
     assert received["country"] == "+1"
+    assert received["sms_link"] == "https://sms.example.com/record?token=DOLtest"
+
+
+def test_add_rejects_non_http_sms_link(srv):
+    server, _ = srv
+    with pytest.raises(HTTPException) as caught:
+        _run(server.admin_account_add(server.AccountAdd(name="new_phone", phone="2025551234",
+                                                        login_method="phone", proxy_id="p1",
+                                                        sms_link="javascript:alert(1)")))
+    assert caught.value.status_code == 400 and "接码链接" in caught.value.detail
 
 
 def test_phone_requires_number_and_proxy(srv):
@@ -308,20 +322,28 @@ def test_flow_rejects_bad_numbers_and_missing_proxy(tmp_path, monkeypatch):
     assert not (tmp_path / "accounts").exists()
 
 
-def test_panel_phone_submit_posts_body_and_opens_progress():
+@pytest.mark.parametrize("raw,phone,country,link", [
+    ("202-555-1234", "2025551234", "+1", ""),
+    ("+18647089355----https://sms.example.com/record?token=DOLtest",
+     "8647089355", "+1", "https://sms.example.com/record?token=DOLtest"),
+    ("+85291234567----https://sms.example.com/x", "91234567", "+852", "https://sms.example.com/x"),
+])
+def test_panel_phone_submit_parses_paste_and_posts_body(raw, phone, country, link):
     import shutil
     import subprocess
     node = shutil.which("node")
     if not node:
         pytest.skip("node required")
     html = (Path(__file__).resolve().parents[1] / "web/index.html").read_text(encoding="utf-8")
-    start = html.index("async function submitAddPhone()")
+    start = html.index("function parsePhonePaste(raw){")
     end = html.index("async function retryAppleLogin", start)
     code = html[start:end]
-    script = r'''
+    script = ("const RAW=" + json.dumps(raw) + ",PHONE=" + json.dumps(phone)
+              + ",COUNTRY=" + json.dumps(country) + ",LINK=" + json.dumps(link) + ";\n") + r'''
 const assert=require('assert');
 let dialogEpoch=1,addProxyLoading=false,addProxyError=false,singleAddProxy='p1',opened=null;
-const nodes={'#f_name':{value:'acc1'},'#f_phone':{value:'202-555-1234'},'#f_cc':{value:'+1'}};
+const nodes={'#f_name':{value:'acc1'},'#f_phone':{value:RAW},'#f_cc':{value:'+1',
+  options:[{value:'+1'},{value:'+44'},{value:'+81'},{value:'+65'},{value:'+61'},{value:'+852'}]}};
 const q=s=>nodes[s];
 const alert=(m)=>{throw new Error('alert:'+m);};
 const dialogText=(s)=>s;
@@ -333,8 +355,9 @@ const openAppleProgress=(name,title)=>{opened={name,title};};
 (async()=>{
  await submitAddPhone();
  assert.equal(posted[0].body.login_method,'phone');
- assert.equal(posted[0].body.phone,'2025551234');
- assert.equal(posted[0].body.country,'+1');
+ assert.equal(posted[0].body.phone,PHONE);
+ assert.equal(posted[0].body.country,COUNTRY);
+ assert.equal(posted[0].body.sms_link,LINK||undefined);
  assert.deepEqual(opened,{name:'acc1',title:'手机号登录'});
 })().catch(e=>{console.error(e);process.exit(1)});
 '''
