@@ -161,6 +161,26 @@ def test_phone_login_times_out_when_no_form_appears(monkeypatch):
         _run(pl.complete_phone_login(context, "2025551234", control_stub([]), "+1"))
 
 
+def test_wait_entry_polls_until_slow_dialog_renders():
+    """回归：点完登录按钮只等 2 秒会漏掉慢渲染的弹窗，入口要持续轮询。"""
+    from dola_pool import phone_login as pl
+
+    class SlowPage:
+        def __init__(self):
+            self.polls = 0
+
+        def locator(self, selector):
+            return Items([Node(None, "entry")]) if self.polls >= 3 else Items()
+
+        async def wait_for_timeout(self, ms):
+            self.polls += 1
+
+    page = SlowPage()
+    entry = _run(pl._wait_entry(page, 15000))
+    assert entry is not None and page.polls == 3
+    assert _run(pl._wait_entry(SlowPage(), 0)) is None
+
+
 @pytest.fixture
 def srv(tmp_path, monkeypatch):
     from dola_pool import server
@@ -343,7 +363,8 @@ def test_panel_phone_submit_parses_paste_and_posts_body(raw, phone, country, lin
 const assert=require('assert');
 let dialogEpoch=1,addProxyLoading=false,addProxyError=false,singleAddProxy='p1',opened=null;
 const nodes={'#f_name':{value:'acc1'},'#f_phone':{value:RAW},'#f_cc':{value:'+1',
-  options:[{value:'+1'},{value:'+44'},{value:'+81'},{value:'+65'},{value:'+61'},{value:'+852'}]}};
+  options:[{value:'+1'},{value:'+44'},{value:'+81'},{value:'+65'},{value:'+61'},{value:'+852'}]},
+  '#phonePasteBox':{hidden:true},'#phonePastePhone':{textContent:''},'#phonePasteLink':{href:'',textContent:''}};
 const q=s=>nodes[s];
 const alert=(m)=>{throw new Error('alert:'+m);};
 const dialogText=(s)=>s;
@@ -353,6 +374,13 @@ const refresh=()=>{};
 const openAppleProgress=(name,title)=>{opened={name,title};};
 ''' + code + r'''
 (async()=>{
+ renderPhonePaste();
+ assert.equal(q('#phonePasteBox').hidden,LINK?false:true);
+ if(LINK){
+   assert.equal(q('#phonePastePhone').textContent,PHONE);
+   assert.equal(q('#phonePasteLink').href,LINK);
+   assert.equal(q('#f_cc').value,COUNTRY);
+ }
  await submitAddPhone();
  assert.equal(posted[0].body.login_method,'phone');
  assert.equal(posted[0].body.phone,PHONE);
