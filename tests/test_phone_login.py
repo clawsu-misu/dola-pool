@@ -363,7 +363,8 @@ def test_panel_phone_submit_parses_paste_and_posts_body(raw, phone, country, lin
 const assert=require('assert');
 let dialogEpoch=1,addProxyLoading=false,addProxyError=false,singleAddProxy='p1',opened=null;
 const nodes={'#f_name':{value:'acc1'},'#f_phone':{value:RAW},'#f_cc':{value:'+1',
-  options:[{value:'+1'},{value:'+44'},{value:'+81'},{value:'+65'},{value:'+61'},{value:'+852'}]}};
+  options:[{value:'+1'},{value:'+44'},{value:'+81'},{value:'+65'},{value:'+61'},{value:'+852'}]},
+  '#phonePasteBox':{hidden:true},'#phonePastePhone':{textContent:''},'#phonePasteLink':{href:'',textContent:''}};
 const q=s=>nodes[s];
 const alert=(m)=>{throw new Error('alert:'+m);};
 const dialogText=(s)=>s;
@@ -373,6 +374,13 @@ const refresh=()=>{};
 const openAppleProgress=(name,title)=>{opened={name,title};};
 ''' + code + r'''
 (async()=>{
+ renderPhonePaste();
+ assert.equal(q('#phonePasteBox').hidden,LINK?false:true);
+ if(LINK){
+   assert.equal(q('#phonePastePhone').textContent,PHONE);
+   assert.equal(q('#phonePasteLink').href,LINK);
+   assert.equal(q('#f_cc').value,COUNTRY);
+ }
  await submitAddPhone();
  assert.equal(posted[0].body.login_method,'phone');
  assert.equal(posted[0].body.phone,PHONE);

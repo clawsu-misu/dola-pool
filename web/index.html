@@ -3121,7 +3121,11 @@ function renderAddAccountForm(){
         <option value="+61">+61 澳大利亚</option>
         <option value="+852">+852 中国香港</option>
       </select>
-      <label>手机号码（不含区号）</label><input id="f_phone" inputmode="numeric" autocomplete="tel-national" placeholder="2025551234">
+      <label>手机号码（不含区号）</label><input id="f_phone" inputmode="numeric" autocomplete="tel-national" placeholder="2025551234" oninput="renderPhonePaste()">
+      <div id="phonePasteBox" hidden>
+        <p class="row" style="align-items:center;gap:8px"><label style="margin:0">接码号码</label><span id="phonePastePhone" translate="no" style="font-weight:600"></span><button class="btn" onclick="copy(q('#phonePastePhone').textContent)">复制号码</button></p>
+        <p class="row" style="align-items:center;gap:8px"><label style="margin:0">接码页面</label><a id="phonePasteLink" target="_blank" rel="noopener noreferrer" translate="no" style="word-break:break-all;font-size:12px"></a><button class="btn" onclick="copy(q('#phonePasteLink').href)">复制链接</button></p>
+      </div>
       <p class="hint">请先选择账号代理。支持粘贴「+1号码----接码链接」组合格式：自动拆分区号与号码；登录进度弹窗会显示复制号码按钮与接码页面链接，从接码页面读取验证码后在面板输入。</p>
       <p class="hint">手机号和验证码仅用于本次登录，不保存。登录完成后保存账号的独立浏览器登录态。</p>
       <div class="row"><button class="btn" onclick="hide('dlg')">取消</button><button class="btn btn-p" ${addProxyLoading||addProxyError?'disabled':''} onclick="submitAddPhone()">发送验证码并登录</button></div>`);
@@ -3175,6 +3179,16 @@ function parsePhonePaste(raw){
     for(const c of opts){if(num.startsWith(c)){country=c;num=num.slice(c.length);break;}}
   }
   return {phone:num.replace(/\D/g,''),country,link};
+}
+function renderPhonePaste(){
+  // 粘贴组合串当下就在添加页预览：号码可复制、接码链接可打开/复制，区号下拉同步切换
+  const p=parsePhonePaste(q('#f_phone').value);
+  const link=/^https?:\/\//i.test(p.link)?p.link:'';
+  q('#phonePasteBox').hidden=!link;
+  if(!link)return;
+  if(p.country)q('#f_cc').value=p.country;
+  q('#phonePastePhone').textContent=p.phone;
+  const a=q('#phonePasteLink');a.href=link;a.textContent=link;
 }
 async function submitAddPhone(){
   if(addProxyLoading||addProxyError)return;
