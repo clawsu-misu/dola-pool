@@ -3237,6 +3237,25 @@ function onProxyKindChange(){
   const tu=q('#tunnelBox');
   if(tu)tu.style.display=(m==='extract'&&kind==='tunnel')?'block':'none';
 }
+/** 1024Proxy 预设（官方账密格式：用户名后接 -region-国家-sid-会话ID-t-粘性分钟，粘性 1-120 分钟）：
+    账密隧道 → 填会话模板和有效期（默认粘性 5 分钟，固定地区在 -sid- 前插 -region-XX-）；
+    API 提取 → 控制台生成 txt 链接（一行一个 host:port:user:pass），按调用计费，间隔默认 60 秒。 */
+function preset1024(kind){
+  q('#f_pmode').value='extract';onProxyModeChange();
+  const radio=q(`input[name=f_pkind][value=${kind}]`);if(radio)radio.checked=true;
+  onProxyKindChange();
+  if(kind==='tunnel'){
+    const tpl=q('#f_ptpl');
+    tpl.value='{user}-region-JP-sid-{session}-t-120';
+    q('#f_pttl').value=7200;
+    tpl.focus();
+    toast('已按 1024Proxy 官方格式填好模板（粘性 120 分钟，出口日本）。改地区改 -region-JP-，粘性时长改 t-N（1-120 分钟，且要大于单个任务最长耗时）。网关地址、端口、密码在 1024 控制台「账密认证 → 去使用」页查看。');
+  }else{
+    q('#f_pextint').value=60;
+    q('#f_pexturl').focus();
+    toast('去 1024 控制台生成 API 提取链接（返回格式选 txt，一行一个 host:port:user:pass），粘贴到「提取链接」。这类接口按调用次数计费，间隔保持 ≥60 秒。');
+  }
+}
 let proxyProbeCache={};
 let shownProxyIds=[];
 async function loadProxies(){
@@ -3437,6 +3456,11 @@ function proxyDialog(p){
     <label>出口类型</label><select id="f_pmode" onchange="onProxyModeChange()" style="width:100%;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:13px">${proxyModeOptions(mode)}</select>
     <div id="dynBox" style="display:${mode==='extract'?'block':'none'};border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0">
       <div class="tiny" style="margin-bottom:6px">动态IP：不用填 IP、端口，出口由节点池里的节点决定（<b>一个节点只给一个号用</b>）。</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+        <span class="tiny">供应商预设：</span>
+        <button type="button" class="btn" onclick="preset1024('tunnel')">1024Proxy 账密隧道</button>
+        <button type="button" class="btn" onclick="preset1024('url')">1024Proxy API 提取</button>
+      </div>
       ${proxyKindRadios(kind)}
       <div id="extractBox" style="display:${mode==='extract'&&kind==='url'?'block':'none'};margin-top:8px">
         <label>提取链接</label><input id="f_pexturl" value="${p?esc(p.extract_url||''):''}" placeholder="https://api.provider.com/...GetIpByGenerateLink?id=xxx">
