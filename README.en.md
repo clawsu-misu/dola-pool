@@ -3,7 +3,7 @@
 <p align="center">Pool a set of dola.com / Doubao accounts and serve an OpenAI-compatible video generation and image API</p>
 <p align="center">
   🌐 <a href="README.md">中文</a> | <b>English</b>
-  &nbsp;·&nbsp; <a href="https://github.com/Roins-hub/dola-pool/releases/latest">Download</a>
+  &nbsp;·&nbsp; <a href="https://github.com/clawsu-misu/dola-pool/releases/latest">Download</a>
   &nbsp;·&nbsp; <a href="USAGE.md">User guide (Chinese)</a>
   &nbsp;·&nbsp; <a href="API.md">API reference (Chinese)</a>
 </p>
@@ -34,10 +34,10 @@ Ubuntu 20.04+ / Debian 11+. One command installs it and registers a system servi
 
 ```bash
 # Reach it at IP:8002
-curl -fsSL https://github.com/Roins-hub/dola-pool/releases/latest/download/install.sh | sudo bash
+curl -fsSL https://github.com/clawsu-misu/dola-pool/releases/latest/download/install.sh | sudo bash
 
 # With a domain and automatic HTTPS (point the domain at this server first)
-curl -fsSL https://github.com/Roins-hub/dola-pool/releases/latest/download/install.sh | sudo DOLA_DOMAIN=video.example.com bash
+curl -fsSL https://github.com/clawsu-misu/dola-pool/releases/latest/download/install.sh | sudo DOLA_DOMAIN=video.example.com bash
 ```
 
 When it finishes, the installer prints:
@@ -51,8 +51,8 @@ After that, update from the panel's **Version** button. Optional settings are do
 
 ```bash
 mkdir dola-pool && cd dola-pool
-curl -fsSLO https://raw.githubusercontent.com/Roins-hub/dola-pool/main/docker-compose.yml
-curl -fsSL https://raw.githubusercontent.com/Roins-hub/dola-pool/main/deploy/dola.env.example -o dola.env
+curl -fsSLO https://raw.githubusercontent.com/clawsu-misu/dola-pool/main/docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/clawsu-misu/dola-pool/main/deploy/dola.env.example -o dola.env
 # Edit dola.env: at least DOLA_ADMIN_KEY and DOLA_PUBLIC_BASE (public address, e.g. http://your-ip:8000)
 docker compose up -d
 ```
@@ -62,7 +62,7 @@ docker compose up -d
 
 ### On your own computer
 
-Download the source archive from the [Release](https://github.com/Roins-hub/dola-pool/releases/latest) page and unpack it, then:
+Download the source archive from the [Release](https://github.com/clawsu-misu/dola-pool/releases/latest) page and unpack it, then:
 - on Windows, double-click `start-local.bat`;
 - on macOS / Linux, run `bash start-local.sh`.
 
@@ -74,7 +74,7 @@ You need Python 3.10+ and Node.js 18+. Outside Japan / Korea you need a proxy, s
 dola.com requires a Japanese or Korean exit IP, so a server in mainland China must use a proxy. For static and rotating proxies and how to avoid rate limits, see [`PROXY.md`](docs/PROXY.md) (Chinese).
 
 ```bash
-git clone https://github.com/Roins-hub/dola-pool.git && cd dola-pool
+git clone https://github.com/clawsu-misu/dola-pool.git && cd dola-pool
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 patchright install chromium                           # needed by the browser fallback

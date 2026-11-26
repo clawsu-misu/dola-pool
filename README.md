@@ -3,7 +3,7 @@
 <p align="center">把一组 dola.com / 豆包账号组成号池，对外提供 OpenAI 兼容的视频生成与生图 API</p>
 <p align="center">
   🌐 <b>中文</b> | <a href="README.en.md">English</a>
-  &nbsp;·&nbsp; <a href="https://github.com/Roins-hub/dola-pool/releases/latest">下载最新版</a>
+  &nbsp;·&nbsp; <a href="https://github.com/clawsu-misu/dola-pool/releases/latest">下载最新版</a>
   &nbsp;·&nbsp; <a href="USAGE.md">使用手册</a>
   &nbsp;·&nbsp; <a href="API.md">接口文档</a>
 </p>
@@ -34,10 +34,10 @@ Ubuntu 20.04+ / Debian 11+，一条命令装好并注册为系统服务：
 
 ```bash
 # 用 IP:8002 访问
-curl -fsSL https://github.com/Roins-hub/dola-pool/releases/latest/download/install.sh | sudo bash
+curl -fsSL https://github.com/clawsu-misu/dola-pool/releases/latest/download/install.sh | sudo bash
 
 # 带域名 + 自动 HTTPS（先把域名解析到这台服务器）
-curl -fsSL https://github.com/Roins-hub/dola-pool/releases/latest/download/install.sh | sudo DOLA_DOMAIN=video.example.com bash
+curl -fsSL https://github.com/clawsu-misu/dola-pool/releases/latest/download/install.sh | sudo DOLA_DOMAIN=video.example.com bash
 ```
 
 装完会打印面板地址、默认账号 `admin` / `admin123`（请立即修改）和随机生成的 API Key。之后在面板「版本」里一键更新即可。可选参数见 [`deploy/install.sh`](deploy/install.sh) 开头的注释。
@@ -46,8 +46,8 @@ curl -fsSL https://github.com/Roins-hub/dola-pool/releases/latest/download/insta
 
 ```bash
 mkdir dola-pool && cd dola-pool
-curl -fsSLO https://raw.githubusercontent.com/Roins-hub/dola-pool/main/docker-compose.yml
-curl -fsSL https://raw.githubusercontent.com/Roins-hub/dola-pool/main/deploy/dola.env.example -o dola.env
+curl -fsSLO https://raw.githubusercontent.com/clawsu-misu/dola-pool/main/docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/clawsu-misu/dola-pool/main/deploy/dola.env.example -o dola.env
 # 编辑 dola.env：至少改 DOLA_ADMIN_KEY、DOLA_PUBLIC_BASE（对外地址，如 http://你的IP:8000）
 docker compose up -d
 ```
@@ -57,7 +57,7 @@ docker compose up -d
 
 ### 本地电脑
 
-下载 [Release](https://github.com/Roins-hub/dola-pool/releases/latest) 源码包解压，然后：
+下载 [Release](https://github.com/clawsu-misu/dola-pool/releases/latest) 源码包解压，然后：
 - Windows 双击 `start-local.bat`；
 - macOS / Linux 运行 `bash start-local.sh`。
 
@@ -69,7 +69,7 @@ docker compose up -d
 dola.com 要求日本 / 韩国出口，服务器在大陆时必须配代理。静态 / 动态代理的配置与防风控建议见 [`PROXY.md`](docs/PROXY.md)。
 
 ```bash
-git clone https://github.com/Roins-hub/dola-pool.git && cd dola-pool
+git clone https://github.com/clawsu-misu/dola-pool.git && cd dola-pool
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 patchright install chromium                           # 浏览器兜底路径需要

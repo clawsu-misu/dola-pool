@@ -5,7 +5,7 @@
 #   sudo bash deploy/install.sh
 #
 # 用法二：直接一条命令（脚本会自己从 GitHub 拉代码）
-#   curl -fsSL https://github.com/Roins-hub/dola-pool/releases/latest/download/install.sh | sudo bash
+#   curl -fsSL https://github.com/clawsu-misu/dola-pool/releases/latest/download/install.sh | sudo bash
 #
 # 带域名 + 自动 HTTPS（需要先把域名 A 记录解析到本机）：
 #   curl -fsSL .../install.sh | sudo DOLA_DOMAIN=video.example.com bash
@@ -272,7 +272,7 @@ cat <<EOF
     升级版本   重新执行本脚本（数据保留）
 ------------------------------------------------------------------
   下一步：添加代理 → 添加账号 → 验证 → 测试生成
-  详细步骤见 docs/USAGE.md：https://github.com/Roins-hub/dola-pool/blob/main/docs/USAGE.md
+  详细步骤见 docs/USAGE.md：https://github.com/clawsu-misu/dola-pool/blob/main/docs/USAGE.md
 ==================================================================
 EOF
 if [ -z "$DOLA_DOMAIN" ]; then

@@ -89,7 +89,7 @@ sudo systemctl restart dola-pool
 
 ```bash
 V=main   # 也可以写成具体的版本 tag，例如 v2.7.6
-base=https://raw.githubusercontent.com/Roins-hub/dola-pool/$V
+base=https://raw.githubusercontent.com/clawsu-misu/dola-pool/$V
 mkdir -p docker
 for f in Dockerfile.cloak docker-compose.cloak.yml docker/entrypoint.sh deploy-cloak-requirements.txt; do
   curl -fsSL "$base/$f" -o "$f"

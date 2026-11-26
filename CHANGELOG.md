@@ -11,6 +11,7 @@
 
 - 一键更新与全新安装的默认仓库切换为 `clawsu-misu/dola-pool`（检测、拉包、安装三处一致），环境变量 `DOLA_UPDATE_REPO` / `REPO` / `DOLA_REPO_SLUG` 仍可覆盖。
 - CI：打 `v*` 标签时自动创建 GitHub Release（说明取自 CHANGELOG 对应段落，附 `deploy/install.sh`）；测试工作流改跑 ubuntu-24.04 自装 Python 3.12 / Node 22 / ffmpeg，不再依赖旧仓库的 ghcr 镜像。
+- README / 部署脚本注释与文档链接全部切换到本仓库（`clawsu-misu/dola-pool`）；「30 秒模式」的 issue #4 说明链接仍指向原仓库（issue 内容不在 fork 中）。
 
 ### 升级说明
 
