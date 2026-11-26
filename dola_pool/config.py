@@ -63,7 +63,7 @@ DEFAULT_REFERENCE_SOURCE = os.getenv("DOLA_DEFAULT_REFERENCE_SOURCE", "ai_genera
 UPLOAD_RETRIES = max(0, int(os.getenv("DOLA_UPLOAD_RETRIES", "3")))
 # 面板一键更新（updater.py）：GitHub 仓库、交接目录、版本检查缓存、等任务清空的最长时间、
 # 放行后等更新程序开始的最长时间。DOLA_DEPLOY_MODE 可强制 source / docker（默认自动判断）。
-UPDATE_REPO = os.getenv("DOLA_UPDATE_REPO", "Roins-hub/dola-pool").strip()
+UPDATE_REPO = os.getenv("DOLA_UPDATE_REPO", "clawsu-misu/dola-pool").strip()
 UPDATE_DIR = os.getenv("DOLA_UPDATE_DIR", "") or os.path.join(
     os.path.dirname(os.path.abspath(os.getenv("DOLA_DB_PATH", "tasks.db"))), "update")
 UPDATE_CHECK_TTL = max(60, int(os.getenv("DOLA_UPDATE_CHECK_TTL", "600")))
