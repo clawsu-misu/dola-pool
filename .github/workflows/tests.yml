@@ -1,4 +1,6 @@
 # 每次推送 / PR 自动跑 pytest（Python 3.12，与 Docker 镜像同版本）
+# 直接跑在 ubuntu-24.04（自带 3.12）+ setup-node + apt ffmpeg，
+# 不再依赖旧仓库的 ghcr 镜像（ghcr.io/roins-hub/dola-pool）。
 name: tests
 
 on:
@@ -13,11 +15,18 @@ permissions:
 jobs:
   pytest:
     runs-on: ubuntu-24.04
-    container:
-      image: ghcr.io/roins-hub/dola-pool:2.7.12
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Check runtime tools
         run: |
           python --version

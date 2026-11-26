@@ -1,5 +1,7 @@
 # 打版本标签（v2.4.0 这种）时构建 Docker 镜像，发布到 ghcr.io/<仓库所有者>/dola-pool：
 #   :2.4.0、:2.4、:latest 三个标签。也可以在 Actions 页面手动运行（只发 :latest 和 :sha-xxxx）。
+# 同一 tag 还会创建 GitHub Release（说明取自 CHANGELOG.md 对应段落，附 deploy/install.sh）：
+#   面板「检查更新」查的就是 /releases/latest，没有这一步一键更新永远提示查不到新版本。
 name: docker
 
 on:
@@ -8,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -40,3 +42,27 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  release:
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: 从 CHANGELOG.md 提取本版本说明
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # 标题形如「## 2.8.3 — 2026-11-21」，取该段到下一个二级标题之间
+          awk -v ver="$VERSION" 'index($0, "## " ver " ") == 1 {flag=1; next} /^## / && flag {exit} flag' \
+            CHANGELOG.md > RELEASE_NOTES.md
+          [ -s RELEASE_NOTES.md ] || echo "本次更新详见仓库内 CHANGELOG.md。" > RELEASE_NOTES.md
+          # Release 说明超长会被截断，保留前 8000 字节
+          head -c 8000 RELEASE_NOTES.md > RELEASE_NOTES.md.tmp && mv RELEASE_NOTES.md.tmp RELEASE_NOTES.md
+      - name: 创建 GitHub Release 并附上 install.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file RELEASE_NOTES.md \
+            deploy/install.sh
