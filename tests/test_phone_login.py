@@ -161,6 +161,26 @@ def test_phone_login_times_out_when_no_form_appears(monkeypatch):
         _run(pl.complete_phone_login(context, "2025551234", control_stub([]), "+1"))
 
 
+def test_wait_entry_polls_until_slow_dialog_renders():
+    """回归：点完登录按钮只等 2 秒会漏掉慢渲染的弹窗，入口要持续轮询。"""
+    from dola_pool import phone_login as pl
+
+    class SlowPage:
+        def __init__(self):
+            self.polls = 0
+
+        def locator(self, selector):
+            return Items([Node(None, "entry")]) if self.polls >= 3 else Items()
+
+        async def wait_for_timeout(self, ms):
+            self.polls += 1
+
+    page = SlowPage()
+    entry = _run(pl._wait_entry(page, 15000))
+    assert entry is not None and page.polls == 3
+    assert _run(pl._wait_entry(SlowPage(), 0)) is None
+
+
 @pytest.fixture
 def srv(tmp_path, monkeypatch):
     from dola_pool import server

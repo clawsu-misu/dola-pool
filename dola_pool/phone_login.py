@@ -67,6 +67,16 @@ async def first_visible(scope, selectors):
     return None
 
 
+async def _wait_entry(page, timeout_ms: int):
+    """轮询等登录弹窗出现：点击后弹窗渲染可能明显慢于固定等待（同站点 Apple 流程等 15s）。"""
+    deadline = time.monotonic() + timeout_ms / 1000
+    while True:
+        entry = await first_visible(page, ENTRY_SELECTORS)
+        if entry is not None or time.monotonic() >= deadline:
+            return entry
+        await page.wait_for_timeout(500)
+
+
 async def dump_form(page, note: str) -> None:
     """失败时留痕：截图 + 把可见输入框/按钮的 testid 打进服务端日志，方便修选择器。"""
     try:
@@ -241,8 +251,9 @@ async def phone_login_flow(account: str, phone: str, control, country: str = "+1
                 control.update(stage="正在打开 Dola 登录弹窗")
                 page = context.pages[0] if context.pages else await context.new_page()
                 await page.goto("https://www.dola.com/chat", timeout=60000, wait_until="domcontentloaded")
-                # 登出状态弹窗通常会自动弹出；没弹就点登录入口（testid 优先，文案兜底）
-                entry = await first_visible(page, ENTRY_SELECTORS)
+                # 登出状态弹窗通常会自动弹出；没弹就点登录入口（testid 优先，文案兜底）。
+                # 弹窗渲染慢于首屏（实测登录按钮 16-25s 才出现），点完要等弹窗真正可见。
+                entry = await _wait_entry(page, 8000)
                 if entry is None:
                     for _ in range(2):
                         login_button = await first_visible(page, LOGIN_BUTTON_SELECTORS)
@@ -253,8 +264,7 @@ async def phone_login_flow(account: str, phone: str, control, country: str = "+1
                                 pass
                         else:
                             await login_button.click(timeout=5000)
-                        await page.wait_for_timeout(2000)
-                        entry = await first_visible(page, ENTRY_SELECTORS)
+                        entry = await _wait_entry(page, 15000)
                         if entry is not None:
                             break
                 if entry is None:
