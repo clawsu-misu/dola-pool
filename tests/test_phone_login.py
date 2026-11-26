@@ -19,8 +19,8 @@ def control_stub(stages, code="654321"):
 
 
 class Node:
-    def __init__(self, frame, key, text=""):
-        self.frame, self.key, self.text = frame, key, text
+    def __init__(self, frame, key, text="", bump=True):
+        self.frame, self.key, self.text, self.bump = frame, key, text, bump
 
     def locator(self, selector):
         return self.frame.locator(selector)
@@ -43,18 +43,47 @@ class Node:
         self.frame.values["country"] = kwargs.get("index")
 
     async def click(self, **kwargs):
-        self.frame.step += 1
+        if self.bump:
+            self.frame.step += 1
 
 
 class Items:
     def __init__(self, items=()):
         self.items = list(items)
 
+    @property
+    def first(self):
+        return self.items[0]
+
     async def count(self):
         return len(self.items)
 
     def nth(self, index):
         return self.items[index]
+
+
+class CountryRow:
+    def __init__(self, frame):
+        self.frame = frame
+
+    async def is_visible(self):
+        return True
+
+    async def is_enabled(self):
+        return True
+
+    def locator(self, selector):
+        from dola_pool.phone_login import COUNTRY_ITEM_SELECTOR
+        assert "[class*=left]" in selector
+        left = Node(self.frame, "left")
+        left.text = "+1"
+        return Items([left])
+
+    async def inner_text(self):
+        return "+1"
+
+    async def click(self, **kwargs):
+        self.frame.values["country"] = "+1"
 
 
 class Frame:
@@ -64,16 +93,22 @@ class Frame:
     def __init__(self):
         self.step, self.values = 0, {}
 
+    async def evaluate(self, script, arg=None):
+        return False  # evaluate 路径没找到行，走逐行遍历兜底
+
     def locator(self, selector):
-        from dola_pool.phone_login import CODE_INPUT_SELECTOR
-        if selector == "select":
-            return Items([Node(self, "country")]) if self.step == 0 else Items()
-        if selector == "option":
-            return Items([Node(self, f"opt{i}", text=t) for i, t in
-                          enumerate(["+81 日本", "+1 美国/加拿大"])]) if self.step == 0 else Items()
+        from dola_pool.phone_login import CODE_INPUT_SELECTOR, COUNTRY_ITEM_SELECTOR, COUNTRY_SELECT_SELECTOR
+        if selector == COUNTRY_ITEM_SELECTOR:
+            return Items([CountryRow(self)]) if self.step == 0 else Items()
+        if selector == COUNTRY_SELECT_SELECTOR:
+            return Items([Node(self, "country", bump=False)]) if self.step == 0 else Items()
+        if selector == "[class*=left]":
+            left = Node(self, "left")
+            left.text = "+1"
+            return Items([left])
         if selector == CODE_INPUT_SELECTOR:
             return Items([Node(self, "code")] if self.step == 1 else [])
-        if selector == 'input[type="tel"]':
+        if selector in ('[data-testid="login_phone_number_input"]', 'input[type="tel"]'):
             return Items([Node(self, "phone")] if self.step == 0 else [])
         return Items()
 
@@ -106,7 +141,7 @@ def test_phone_login_fills_country_number_then_challenge_code():
         _run(pl.complete_phone_login(context, "2025551234", control, "+1"))
     finally:
         monkey.undo()
-    assert frame.values["country"] == 1          # 区号选择器选到 +1
+    assert frame.values["country"] == "+1"       # 区号选择器选到 +1
     assert frame.values["phone"] == "2025551234"
     assert frame.values["code"] == "654321"
     assert any("验证码已发送" in str(u) for u in updates)
@@ -206,8 +241,14 @@ def test_profile_only_enters_the_pool_after_a_completed_login(tmp_path, monkeypa
     entered = asyncio.Event()
     async def no_action(*args, **kwargs):
         pass
-    entry = SimpleNamespace(wait_for=no_action, click=no_action)
-    page = SimpleNamespace(goto=no_action, locator=lambda sel: entry)
+    async def _vis():
+        return True
+    async def _count():
+        return 1
+    entry = SimpleNamespace(wait_for=no_action, click=no_action, is_visible=_vis,
+                            count=_count, nth=lambda index: entry)
+    page = SimpleNamespace(goto=no_action, locator=lambda sel: entry,
+                           wait_for_timeout=no_action, evaluate=lambda *a, **k: "{}")
     cookie = {"name": "sessionid", "value": "test-session", "domain": ".dola.com", "path": "/", "expires": -1}
     async def cookies(*args):
         return [cookie]
