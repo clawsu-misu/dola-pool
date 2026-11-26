@@ -45,6 +45,7 @@ from dola_pool import video_link
 from dola_pool.prompt_context import dispatch_prompt, reference_supplement
 from dola_pool.add_account import add_account_flow
 from dola_pool.apple_login import AppleLoginControl, apple_login_flow
+from dola_pool.phone_login import PHONE_RE, phone_login_flow
 from dola_pool.cookie_login import import_cookie_account, import_cookie_accounts_from_text
 from dola_pool.cookie_export import CookieExportError, build_export
 from dola_pool.account_proxy_selection import bind_selected_proxy, validate_proxy_ids
@@ -2948,7 +2949,9 @@ class AccountAdd(BaseModel):
     cookies: str = ""
     cookie_skip_verify: bool = False
     proxy_id: str | None = None
-    login_method: Literal["google", "apple"] = "google"
+    login_method: Literal["google", "apple", "phone"] = "google"
+    phone: str = ""
+    country: str = "+1"
 
 
 class AppleLoginAnswer(BaseModel):
@@ -3207,7 +3210,7 @@ async def _verify_account_once(name: str) -> dict:
     refreshed = False
     if not ok:
         acct = next((a for a in pool.list_accounts() if a["name"] == name), {})
-        creds = None if acct.get("source") == "apple" else cred_store.load(name)
+        creds = None if acct.get("source") in ("apple", "phone") else cred_store.load(name)
         if creds and creds.get("password"):
             try:
                 async with ADD_ACCOUNT_SEM, pool._use_account(name, "verifying"):
@@ -4152,9 +4155,12 @@ def _add_job_stage(name: str, stage: str) -> None:
 
 async def _run_add_job(name: str, email: str, password: str, totp: str,
                        cookies: str = "", cookie_skip_verify: bool = False,
-                       proxy_id: str | None = None, login_method: str = "google") -> None:
+                       proxy_id: str | None = None, login_method: str = "google",
+                       phone: str = "", country: str = "+1") -> None:
+    source = ("cookie" if cookies else
+              {"apple": "apple", "phone": "phone"}.get(login_method, "login"))
     JOBS[name] = {"kind": "add", "status": "running", "email": email,
-                  "source": "cookie" if cookies else ("apple" if login_method == "apple" else "login"),
+                  "source": source,
                   "error": "", "started_at": time.time(), "stage": "排队中"}
     try:
         if ADD_ACCOUNT_SEM.locked():
@@ -4175,23 +4181,26 @@ async def _run_add_job(name: str, email: str, password: str, totp: str,
             else:
                 if proxy_id:
                     await asyncio.to_thread(bind_selected_proxy, name, proxy_id)
-                if login_method == "apple":
+                if login_method in ("apple", "phone"):
                     def update(**fields):
                         JOBS[name] = {**JOBS[name], **fields}
                     control = AppleLoginControl(update)
                     APPLE_LOGINS[name] = control
-                    await apple_login_flow(name, email, password, control)
+                    if login_method == "apple":
+                        await apple_login_flow(name, email, password, control)
+                    else:
+                        await phone_login_flow(name, phone, control, country)
                     password = ""
                 else:
                     _add_job_stage(name, "Google 登录中（打开浏览器走 OAuth，通常 1~3 分钟）")
                     await add_account_flow(name, email, password, totp)
                 pool.ensure_account(name)
                 pool.set_email(name, email)
-                pool.set_source(name, "apple" if login_method == "apple" else "login")
+                pool.set_source(name, login_method if login_method in ("apple", "phone") else "login")
                 pool.set_login_status(name, True)
         JOBS[name] = {**JOBS[name], "status": "success", "stage": "", "finished_at": time.time()}
     except asyncio.CancelledError:
-        JOBS[name] = {**JOBS[name], "status": "failed", "stage": "", "error": "已取消 Apple 登录",
+        JOBS[name] = {**JOBS[name], "status": "failed", "stage": "", "error": "已取消登录",
                       "finished_at": time.time()}
         raise
     except Exception as e:
@@ -4216,7 +4225,8 @@ async def _cred_try_refresh_once() -> None:
             continue
         # cookie 来源账号靠重新导入 cookie 管理，不用 Google 凭据自动重登，
         # 否则会卡 Google OAuth 并占用浏览器 profile（导致验证 profile 锁）。
-        if acct.get("source") in ("cookie", "apple"):
+        # apple / phone 来源没有 Google 凭据，同样跳过。
+        if acct.get("source") in ("cookie", "apple", "phone"):
             continue
         if acct.get("login_ok") in (1, None):
             continue
@@ -4281,7 +4291,14 @@ async def admin_account_add(body: AccountAdd, x_admin_key: str | None = Header(d
             raise HTTPException(400, "请填写 Apple 账号和密码")
         if not body.proxy_id and not get_account_proxy(body.name):
             raise HTTPException(400, "Apple 登录需要选择一个已启用的账号代理")
-    if not email and not cookies:
+    if body.login_method == "phone":
+        if cookies:
+            raise HTTPException(400, "手机号登录不能同时导入 Cookie")
+        if not PHONE_RE.match(body.phone):
+            raise HTTPException(400, "请填写正确的手机号码（仅数字，5-15 位）")
+        if not body.proxy_id and not get_account_proxy(body.name):
+            raise HTTPException(400, "手机号登录需要选择一个已启用的账号代理")
+    if not email and not cookies and body.login_method != "phone":
         raise HTTPException(400, "邮箱不能为空")
     if email:
         dups = pool.find_accounts_by_email(email)
@@ -4297,19 +4314,25 @@ async def admin_account_add(body: AccountAdd, x_admin_key: str | None = Header(d
             json.loads(cookies)
         except Exception:
             raise HTTPException(422, "cookie JSON 格式错误")
-    if email and body.login_method != "apple":
+    if email and body.login_method not in ("apple", "phone"):
         cred_store.store(body.name, email, body.password, body.totp)
+    source = ("cookie" if cookies else
+              {"apple": "apple", "phone": "phone"}.get(body.login_method, "login"))
     JOBS[body.name] = {"kind": "add", "status": "running", "email": email,
-                       "source": "cookie" if cookies else ("apple" if body.login_method == "apple" else "login"),
+                       "source": source,
                        "error": "", "started_at": time.time(), "stage": "排队中"}
-    kwargs = {"login_method": "apple"} if body.login_method == "apple" else {}
+    kwargs = {}
+    if body.login_method in ("apple", "phone"):
+        kwargs["login_method"] = body.login_method
+    if body.login_method == "phone":
+        kwargs.update(phone=body.phone, country=body.country)
     task = asyncio.create_task(_run_add_job(
         body.name, email, body.password, body.totp,
         cookies=cookies, cookie_skip_verify=body.cookie_skip_verify,
         proxy_id=body.proxy_id,
         **kwargs,
     ))
-    if body.login_method == "apple":
+    if body.login_method in ("apple", "phone"):
         APPLE_ADD_TASKS[body.name] = task
     return {"ok": True, "job": "running"}
 
@@ -4326,7 +4349,7 @@ async def admin_apple_answer(name: str, body: AppleLoginAnswer,
     _admin_auth(x_admin_key)
     control = APPLE_LOGINS.get(name)
     if not control or JOBS.get(name, {}).get("status") != "running":
-        raise HTTPException(409, "Apple 登录已结束，请刷新账号列表")
+        raise HTTPException(409, "登录已结束，请刷新账号列表")
     try:
         control.submit(body.challenge_id, body.code)
     except ValueError as exc:
@@ -4340,7 +4363,7 @@ async def admin_apple_cancel(name: str, x_admin_key: str | None = Header(default
     _admin_auth(x_admin_key)
     task = APPLE_ADD_TASKS.get(name)
     if not task or task.done():
-        raise HTTPException(409, "Apple 登录已结束，请刷新账号列表")
+        raise HTTPException(409, "登录已结束，请刷新账号列表")
     task.cancel()
     try:
         await task

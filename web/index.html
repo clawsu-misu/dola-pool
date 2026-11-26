@@ -772,6 +772,7 @@ input[type=checkbox]:active{transform:scale(.88)}
             <option value="all">全部来源</option>
             <option value="login">账号登录</option>
             <option value="apple">Apple 登录</option>
+            <option value="phone">手机号登录</option>
             <option value="cookie">Cookie 载入</option>
           </select>
           <button class="btn btn-danger" id="btnDelSel" onclick="deleteSelectedAccounts()" disabled>删除选中</button>
@@ -2067,6 +2068,7 @@ function matchGroup(x){
 
 function srcBadge(x){
   if(x.source==='apple')return '<span class="badge b-green">Apple 登录</span>';
+  if(x.source==='phone')return '<span class="badge b-green">手机号登录</span>';
   if(x.source==='login')return '<span class="badge b-green" title="Google 账号登录">账号登录</span>';
   if(x.site==='doubao'){
     const kind={work:'工作号',personal:'个人号'}[x.doubao_account_type]||'待识别';
@@ -2158,7 +2160,7 @@ function renderAccounts(){
   filteredAccounts=sorted.filter(x=>
     (srcFilterVal==='all'||x.source===srcFilterVal)&&matchGroup(x)
     &&searchHit('accounts',x.name,x.email,x.note,x.proxy_name,x.effective_egress,x.exit_ip,x.group,
-                x.group_reason,x.source==='cookie'?'Cookie 载入':x.source==='apple'?'Apple 登录':'账号登录',x.site==='doubao'?'豆包 doubao':'dola'));
+                x.group_reason,x.source==='cookie'?'Cookie 载入':x.source==='apple'?'Apple 登录':x.source==='phone'?'手机号登录':'账号登录',x.site==='doubao'?'豆包 doubao':'dola'));
   filteredNames=filteredAccounts.map(x=>x.name);
   // 被筛掉/已删除的账号不再保留勾选，避免「删除选中」误删看不见的号
   for(const n of [...selAccounts])if(!filteredNames.includes(n))selAccounts.delete(n);
@@ -2222,8 +2224,10 @@ function pendingAddRows(jobs,inPool){
         :`<span class="badge b-red" title="${esc(j.error)}">加号失败</span><div class="tiny">${esc((j.error||'').slice(0,80))}</div>`;
       const src=j.source==='cookie'?'<span class="badge b-orange">Cookie 载入</span>'
         :j.source==='apple'?'<span class="badge b-green">Apple 登录</span>'
+        :j.source==='phone'?'<span class="badge b-green">手机号登录</span>'
         :j.source==='login'?'<span class="badge b-green">账号登录</span>':'<span class="tiny">—</span>';
-      const ops=j.status==='running'?(j.source==='apple'?`<button class="btn btn-p" onclick="openAppleProgress('${esc(n)}')">${j.challenge?'处理登录验证':'查看登录进度'}</button>`:'<span class="tiny">完成后自动出现在列表</span>')
+      const interactive=j.source==='apple'||j.source==='phone';
+      const ops=j.status==='running'?(interactive?`<button class="btn btn-p" onclick="openAppleProgress('${esc(n)}')">${j.challenge?'处理登录验证':'查看登录进度'}</button>`:'<span class="tiny">完成后自动出现在列表</span>')
         :'<div class="video-wrap">'+(j.source==='login'?`<button class="btn" onclick="retryAddJob('${esc(n)}')">重试</button>`:'')
           +(j.source==='apple'?`<button class="btn" onclick="retryAppleLogin('${esc(n)}')">重新登录</button>`:'')
           +`<button class="btn btn-danger" onclick="deleteAddJob('${esc(n)}')">删除</button></div>`;
@@ -3067,6 +3071,7 @@ function addModeSwitch(){
   return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
     <button class="btn ${addMode==='google'?'btn-p':''}" onclick="setAddMode('google')">Google 登录</button>
     <button class="btn ${addMode==='apple'?'btn-p':''}" onclick="setAddMode('apple')">Apple 登录</button>
+    <button class="btn ${addMode==='phone'?'btn-p':''}" onclick="setAddMode('phone')">手机号登录</button>
     <button class="btn ${addMode==='cookie'?'btn-p':''}" onclick="setAddMode('cookie')">Cookie 导入</button>
   </div>`;
 }
@@ -3102,6 +3107,24 @@ function renderAddAccountForm(){
       <p class="hint">请先选择账号代理。登录使用 Apple 官方授权页；若出现双重验证，请在面板输入受信任设备收到的六位验证码。</p>
       <p class="hint">密码和验证码仅用于本次登录，不保存。登录完成后保存账号的独立浏览器登录态。</p>
       <div class="row"><button class="btn" onclick="hide('dlg')">取消</button><button class="btn btn-p" ${addProxyLoading||addProxyError?'disabled':''} onclick="submitAddApple()">开始 Apple 登录</button></div>`);
+    return;
+  }
+  if(addMode==='phone'){
+    showDlg(`<h2>添加账号</h2>${sw}
+      <label>账号名</label><input id="f_name" value="${def}">
+      ${addProxyPicker(false,true)}
+      <label>国际区号</label><select id="f_cc" style="width:100%;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:var(--bg);color:var(--text)">
+        <option value="+1" selected>+1 美国/加拿大</option>
+        <option value="+44">+44 英国</option>
+        <option value="+81">+81 日本</option>
+        <option value="+65">+65 新加坡</option>
+        <option value="+61">+61 澳大利亚</option>
+        <option value="+852">+852 中国香港</option>
+      </select>
+      <label>手机号码（不含区号）</label><input id="f_phone" inputmode="numeric" autocomplete="tel-national" placeholder="2025551234">
+      <p class="hint">请先选择账号代理。点击开始后 Dola 向该号码发送短信验证码，请在登录进度弹窗输入收到的六位验证码。</p>
+      <p class="hint">手机号和验证码仅用于本次登录，不保存。登录完成后保存账号的独立浏览器登录态。</p>
+      <div class="row"><button class="btn" onclick="hide('dlg')">取消</button><button class="btn btn-p" ${addProxyLoading||addProxyError?'disabled':''} onclick="submitAddPhone()">发送验证码并登录</button></div>`);
     return;
   }
   showDlg(`<h2>添加账号</h2>${sw}
@@ -3142,14 +3165,25 @@ async function submitAddApple(){
   body.password='';if(epoch!==dialogEpoch){refresh();return;}q('#f_pass').value='';
   openAppleProgress(body.name);refresh();
 }
+async function submitAddPhone(){
+  if(addProxyLoading||addProxyError)return;
+  const body={name:q('#f_name').value.trim(),phone:q('#f_phone').value.replace(/\D/g,''),country:q('#f_cc').value,login_method:'phone',proxy_id:singleAddProxy||null};
+  if(!body.name||!body.phone)return alert('请填写账号名/手机号码');
+  if(!body.proxy_id)return alert('请选择手机号登录使用的代理');
+  const button=q('#dlg .btn-p:last-child'),epoch=dialogEpoch;if(button)button.disabled=true;
+  try{await api('/api/admin/accounts',{method:'POST',body});}
+  catch(e){if(epoch!==dialogEpoch)return;if(button)button.disabled=false;return alert(dialogText`${e.message}`);}
+  if(epoch!==dialogEpoch){refresh();return;}
+  openAppleProgress(body.name,'手机号登录');refresh();
+}
 async function retryAppleLogin(name){
   let job;try{job=(await api('/api/admin/jobs')).jobs[name];}catch(e){return alert(dialogText`${e.message}`);}
   addMode='apple';singleAddProxy='';addProxyLoading=true;addProxyError=false;renderAddAccountForm();
   q('#f_name').value=name;q('#f_email').value=job?.email||'';
   await finishAddProxyChoices(dialogEpoch);
 }
-function openAppleProgress(name){
-  showDlg(`<h2>Apple 登录</h2><p translate="no">${esc(name)}</p>
+function openAppleProgress(name,title){
+  showDlg(`<h2>${title||'Apple 登录'}</h2><p translate="no">${esc(name)}</p>
     <p id="appleStage" role="status">正在读取登录进度…</p>
     <div id="appleCodeBox" hidden><label>六位验证码</label><input id="appleCode" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
       <button class="btn btn-p" onclick="submitAppleAnswer()">提交验证码</button></div>
@@ -3165,7 +3199,7 @@ async function pollAppleProgress(epoch){
     const job=(await api('/api/admin/jobs')).jobs[name];
     if(epoch!==dialogEpoch||name!==appleProgressName)return;
     const running=job?.status==='running';
-    q('#appleStage').textContent=running?(job.stage||'等待 Apple 登录'):job?.status==='success'?'Apple 登录成功，账号已加入号池':job?.error||'登录任务已结束';
+    q('#appleStage').textContent=running?(job.stage||'等待登录'):job?.status==='success'?'登录成功，账号已加入号池':job?.error||'登录任务已结束';
     const challenge=running?job.challenge:null;
     if(appleChallengeId!==(challenge?.id||''))q('#appleCode').value='';
     appleChallengeId=challenge?.id||'';
@@ -3179,11 +3213,11 @@ async function submitAppleAnswer(){
   if(!appleProgressName||!appleChallengeId)return;
   const name=appleProgressName,epoch=dialogEpoch,id=appleChallengeId;
   const code=q('#appleCodeBox').hidden?'':q('#appleCode').value.trim();
-  if(!q('#appleCodeBox').hidden&&!/^\d{6}$/.test(code))return alert('请输入 Apple 的六位验证码');
+  if(!q('#appleCodeBox').hidden&&!/^\d{6}$/.test(code))return alert('请输入六位验证码');
   q('#appleCode').value='';q('#appleFeedback').textContent='正在提交…';
   try{
     await api('/api/admin/jobs/'+encodeURIComponent(name)+'/apple-answer',{method:'POST',body:{challenge_id:id,code}});
-    if(epoch===dialogEpoch){appleChallengeId='';q('#appleCodeBox').hidden=true;q('#appleContinue').hidden=true;q('#appleFeedback').textContent='已提交，正在等待 Apple 返回结果';}
+    if(epoch===dialogEpoch){appleChallengeId='';q('#appleCodeBox').hidden=true;q('#appleContinue').hidden=true;q('#appleFeedback').textContent='已提交，正在等待登录结果';}
   }catch(e){if(epoch===dialogEpoch)q('#appleFeedback').textContent=e.message;}
 }
 async function cancelAppleLogin(){
