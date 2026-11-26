@@ -55,7 +55,7 @@ def test_latest_release_is_cached_and_survives_errors(upd, monkeypatch):
     assert _run(updater.latest_release())["version"] == "2.6.5" and len(calls) == 1     # 缓存
     failed = _run(updater.latest_release(force=True))
     assert failed["version"] == "2.6.5" and "503" in failed["error"]                  # 失败保留上次结果
-    assert calls[0].endswith("/repos/Roins-hub/dola-pool/releases/latest")
+    assert calls[0].endswith("/repos/clawsu-misu/dola-pool/releases/latest")
 
 
 def test_request_requires_agent_newer_and_latest(upd):
