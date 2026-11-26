@@ -1,5 +1,11 @@
 # 更新日志
 
+## 2.9.1 — 2026-11-26
+
+### 修复
+
+- 手机号登录卡在「正在打开 Dola 登录弹窗」：入口 testid 按实测弹窗改为 `login_third_phone_verify_code`（原猜测的 `login_third_phone` 不存在，且候选选择器只试了第一个）；登录入口优先 `to_login_button`，文案匹配降为兜底；区号选择改为 Semi 自绘下拉交互（ja-JP 界面默认 +81，流程自动点到目标区号行）；号码输入与提交使用实测 testid `login_phone_number_input` / `login_next_button`。失败时截图 `dbg_phone_login.png` 并把可见元素 testid 打进服务端日志，方便后续对版。
+
 ## 2.9.0 — 2026-11-26
 
 ### 新增
