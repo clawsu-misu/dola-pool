@@ -357,7 +357,7 @@ const assert=require('assert');
 let dialogEpoch=1,job={status:'running',stage:'等待验证码',challenge:{id:'first',kind:'code'}},posted=[];
 let addProxyLoading=false,addProxyError=false,singleAddProxy='p1';
 const nodes={};
-for(const name of ['appleStage','appleCode','appleCodeBox','appleContinue','appleCancel','appleFeedback'])nodes['#'+name]={value:'',hidden:false,textContent:'',disabled:false};
+for(const name of ['appleStage','appleCode','appleCodeBox','appleContinue','appleCancel','appleFeedback','appleSmsBox','appleSmsPhone','appleSmsLink'])nodes['#'+name]={value:'',hidden:false,textContent:'',disabled:false};
 const q=s=>nodes[s],refresh=()=>{},alert=()=>{},showDlg=()=>{dialogEpoch++;stopAppleProgress();};
 let api=async(url,opts)=>{if(!opts)return {jobs:{acc1:job}};posted.push(opts.body);return {ok:true};};
 ''' + code + r'''

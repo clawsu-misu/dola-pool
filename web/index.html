@@ -3122,7 +3122,7 @@ function renderAddAccountForm(){
         <option value="+852">+852 中国香港</option>
       </select>
       <label>手机号码（不含区号）</label><input id="f_phone" inputmode="numeric" autocomplete="tel-national" placeholder="2025551234">
-      <p class="hint">请先选择账号代理。点击开始后 Dola 向该号码发送短信验证码，请在登录进度弹窗输入收到的六位验证码。</p>
+      <p class="hint">请先选择账号代理。支持粘贴「+1号码----接码链接」组合格式：自动拆分区号与号码；登录进度弹窗会显示复制号码按钮与接码页面链接，从接码页面读取验证码后在面板输入。</p>
       <p class="hint">手机号和验证码仅用于本次登录，不保存。登录完成后保存账号的独立浏览器登录态。</p>
       <div class="row"><button class="btn" onclick="hide('dlg')">取消</button><button class="btn btn-p" ${addProxyLoading||addProxyError?'disabled':''} onclick="submitAddPhone()">发送验证码并登录</button></div>`);
     return;
@@ -3165,9 +3165,22 @@ async function submitAddApple(){
   body.password='';if(epoch!==dialogEpoch){refresh();return;}q('#f_pass').value='';
   openAppleProgress(body.name);refresh();
 }
+function parsePhonePaste(raw){
+  // 支持「+18647089355----https://接码链接」组合粘贴：---- 前是号码（可带 +区号），后是接码链接
+  const parts=String(raw||'').split('----');
+  const link=(parts[1]||'').trim();
+  let num=(parts[0]||'').trim(),country='';
+  if(num.startsWith('+')){
+    const opts=[...q('#f_cc').options].map(o=>o.value).sort((a,b)=>b.length-a.length);
+    for(const c of opts){if(num.startsWith(c)){country=c;num=num.slice(c.length);break;}}
+  }
+  return {phone:num.replace(/\D/g,''),country,link};
+}
 async function submitAddPhone(){
   if(addProxyLoading||addProxyError)return;
-  const body={name:q('#f_name').value.trim(),phone:q('#f_phone').value.replace(/\D/g,''),country:q('#f_cc').value,login_method:'phone',proxy_id:singleAddProxy||null};
+  const parsed=parsePhonePaste(q('#f_phone').value);
+  const body={name:q('#f_name').value.trim(),phone:parsed.phone,country:parsed.country||q('#f_cc').value,login_method:'phone',proxy_id:singleAddProxy||null};
+  if(parsed.link)body.sms_link=parsed.link;
   if(!body.name||!body.phone)return alert('请填写账号名/手机号码');
   if(!body.proxy_id)return alert('请选择手机号登录使用的代理');
   const button=q('#dlg .btn-p:last-child'),epoch=dialogEpoch;if(button)button.disabled=true;
@@ -3185,6 +3198,10 @@ async function retryAppleLogin(name){
 function openAppleProgress(name,title){
   showDlg(`<h2>${title||'Apple 登录'}</h2><p translate="no">${esc(name)}</p>
     <p id="appleStage" role="status">正在读取登录进度…</p>
+    <div id="appleSmsBox" hidden>
+      <p class="row" style="align-items:center;gap:8px"><label style="margin:0">接码号码</label><span id="appleSmsPhone" translate="no" style="font-weight:600"></span><button class="btn" onclick="copy(q('#appleSmsPhone').textContent)">复制号码</button></p>
+      <p class="row" style="align-items:center;gap:8px"><label style="margin:0">接码页面</label><a id="appleSmsLink" target="_blank" rel="noopener noreferrer" translate="no" style="word-break:break-all;font-size:12px"></a><button class="btn" onclick="copy(q('#appleSmsLink').href)">复制链接</button></p>
+    </div>
     <div id="appleCodeBox" hidden><label>六位验证码</label><input id="appleCode" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
       <button class="btn btn-p" onclick="submitAppleAnswer()">提交验证码</button></div>
     <button id="appleContinue" class="btn btn-p" hidden onclick="submitAppleAnswer()">确认继续授权</button>
@@ -3200,6 +3217,14 @@ async function pollAppleProgress(epoch){
     if(epoch!==dialogEpoch||name!==appleProgressName)return;
     const running=job?.status==='running';
     q('#appleStage').textContent=running?(job.stage||'等待登录'):job?.status==='success'?'登录成功，账号已加入号池':job?.error||'登录任务已结束';
+    const smsLink=running&&/^https?:\/\//i.test(job?.sms_link||'')?job.sms_link:'';
+    const showSms=running&&(smsLink||job?.phone);
+    q('#appleSmsBox').hidden=!showSms;
+    if(showSms){
+      q('#appleSmsPhone').textContent=job?.phone||'';
+      const a=q('#appleSmsLink');
+      if(smsLink){a.href=smsLink;a.textContent=smsLink;}else{a.removeAttribute('href');a.textContent='';}
+    }
     const challenge=running?job.challenge:null;
     if(appleChallengeId!==(challenge?.id||''))q('#appleCode').value='';
     appleChallengeId=challenge?.id||'';

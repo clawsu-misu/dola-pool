@@ -2952,6 +2952,7 @@ class AccountAdd(BaseModel):
     login_method: Literal["google", "apple", "phone"] = "google"
     phone: str = ""
     country: str = "+1"
+    sms_link: str = ""
 
 
 class AppleLoginAnswer(BaseModel):
@@ -4156,11 +4157,14 @@ def _add_job_stage(name: str, stage: str) -> None:
 async def _run_add_job(name: str, email: str, password: str, totp: str,
                        cookies: str = "", cookie_skip_verify: bool = False,
                        proxy_id: str | None = None, login_method: str = "google",
-                       phone: str = "", country: str = "+1") -> None:
+                       phone: str = "", country: str = "+1", sms_link: str = "") -> None:
     source = ("cookie" if cookies else
               {"apple": "apple", "phone": "phone"}.get(login_method, "login"))
+    # phone / sms_link 供面板登录进度弹窗显示「复制号码 / 接码页面」；接码 token 只在内存，不落库不进日志
     JOBS[name] = {"kind": "add", "status": "running", "email": email,
                   "source": source,
+                  "phone": phone if login_method == "phone" else "",
+                  "sms_link": sms_link if login_method == "phone" else "",
                   "error": "", "started_at": time.time(), "stage": "排队中"}
     try:
         if ADD_ACCOUNT_SEM.locked():
@@ -4291,6 +4295,7 @@ async def admin_account_add(body: AccountAdd, x_admin_key: str | None = Header(d
             raise HTTPException(400, "请填写 Apple 账号和密码")
         if not body.proxy_id and not get_account_proxy(body.name):
             raise HTTPException(400, "Apple 登录需要选择一个已启用的账号代理")
+    sms_link = ""
     if body.login_method == "phone":
         if cookies:
             raise HTTPException(400, "手机号登录不能同时导入 Cookie")
@@ -4298,6 +4303,10 @@ async def admin_account_add(body: AccountAdd, x_admin_key: str | None = Header(d
             raise HTTPException(400, "请填写正确的手机号码（仅数字，5-15 位）")
         if not body.proxy_id and not get_account_proxy(body.name):
             raise HTTPException(400, "手机号登录需要选择一个已启用的账号代理")
+        # 接码链接（可选）：只在内存任务里给面板展示，不落库、不进日志
+        sms_link = (body.sms_link or "").strip()
+        if sms_link and (len(sms_link) > 500 or not re.match(r"^https?://\S+$", sms_link)):
+            raise HTTPException(400, "接码链接需要是完整的 http(s) 地址")
     if not email and not cookies and body.login_method != "phone":
         raise HTTPException(400, "邮箱不能为空")
     if email:
@@ -4325,7 +4334,7 @@ async def admin_account_add(body: AccountAdd, x_admin_key: str | None = Header(d
     if body.login_method in ("apple", "phone"):
         kwargs["login_method"] = body.login_method
     if body.login_method == "phone":
-        kwargs.update(phone=body.phone, country=body.country)
+        kwargs.update(phone=body.phone, country=body.country, sms_link=sms_link)
     task = asyncio.create_task(_run_add_job(
         body.name, email, body.password, body.totp,
         cookies=cookies, cookie_skip_verify=body.cookie_skip_verify,
