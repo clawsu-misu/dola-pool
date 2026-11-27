@@ -43,6 +43,7 @@ from dola_pool import upstream_error
 from dola_pool import updater
 from dola_pool import upscale
 from dola_pool import dola_responder
+from dola_pool import env_check
 from dola_pool import work_reply
 from dola_pool import video_link
 from dola_pool.prompt_context import dispatch_prompt, reference_supplement
@@ -2186,6 +2187,17 @@ async def admin_update_cancel(x_admin_key: str | None = Header(default=None)):
     except updater.UpdateError as exc:
         raise HTTPException(409, str(exc)) from exc
     return await _update_payload()
+
+
+@app.get("/api/admin/env-check")
+async def admin_env_check(refresh: bool = False, x_admin_key: str | None = Header(default=None)):
+    """面板「环境检查」：Python / Node / ffmpeg / 浏览器内核 / 数据目录 / 磁盘。
+
+    只查本机，不访问外网；浏览器内核探测要起一次 patchright 驱动，所以结果缓存 60 秒，
+    refresh=1 立即重跑。账号数由这里传进去（env_check 不 import server）。
+    """
+    _admin_auth(x_admin_key)
+    return await asyncio.to_thread(env_check.run, accounts=len(pool.accounts), refresh=refresh)
 
 
 # ---------------------------------------------------------------- 视频超分（upscale.py）

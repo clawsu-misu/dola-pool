@@ -724,6 +724,7 @@ input[type=checkbox]:active{transform:scale(.88)}
     <button class="nav-item" data-tab="tasks" onclick="switchTab('tasks')"><svg viewBox="0 0 24 24"><path d="M9.5 6h10.5M9.5 12h10.5M9.5 18h10.5"/><circle cx="4.8" cy="6" r="1.4"/><circle cx="4.8" cy="12" r="1.4"/><circle cx="4.8" cy="18" r="1.4"/></svg><span>任务列表</span></button>
     <button class="nav-item" data-tab="videos" onclick="switchTab('videos')"><svg viewBox="0 0 24 24"><rect x="2.8" y="5" width="18.4" height="14" rx="2.6"/><path d="M10.2 9.3l5.2 2.7-5.2 2.7z" fill="currentColor" stroke="none"/></svg><span>视频管理</span></button>
     <button class="nav-item" data-tab="keys" onclick="switchTab('keys')"><svg viewBox="0 0 24 24"><circle cx="8" cy="14.4" r="4.3"/><path d="M11.2 11.2l8-8M17 5.4l2.4 2.4M14.4 8l2.4 2.4"/></svg><span>API 密钥</span></button>
+    <button class="nav-item" data-tab="env" onclick="switchTab('env')"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15.2" rx="2.4"/><path d="M9 5V3.6h6V5M8.6 12.6l2.4 2.4 4.6-4.8"/></svg><span>环境检查</span></button>
   </nav>
 
   <div class="side-foot">
@@ -860,6 +861,23 @@ input[type=checkbox]:active{transform:scale(.88)}
       </div>
       <div class="hint" style="margin-bottom:12px">每个 Key 可独立设置每日额度、并发数和允许时长；0 表示不限。环境变量里的 key 始终有效、不在此列表。</div>
       <div id="keysTable"></div>
+    </div>
+  </section>
+
+  <section id="tab-env" style="display:none">
+    <div class="card">
+      <div class="toolbar">
+        <h1 class="page-title">环境检查</h1>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" onclick="loadEnv(true)">重新检查</button>
+        </div>
+      </div>
+      <div class="hint" style="margin-bottom:12px">
+        检查这台服务器上的运行环境：Python、Node.js、ffmpeg、浏览器内核、签名脚本、数据目录、磁盘和默认代理。
+        只查本机，不访问上游、不消耗额度。红项会让出片失败，黄项只影响部分路径（例如浏览器兜底、参考音频转码）。
+      </div>
+      <div id="envSummary" style="margin:10px 0 6px"></div>
+      <div id="envTable"></div>
     </div>
   </section>
 </main>
@@ -1076,7 +1094,7 @@ function switchTab(t){
   curTab=t;
   q('main').classList.toggle('wide-tasks',t==='tasks');
   document.querySelectorAll('.side-nav .nav-item').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
-  ['dash','accounts','proxies','tasks','videos','keys'].forEach(x=>{q('#tab-'+x).style.display=x===t?'block':'none';});
+  ['dash','accounts','proxies','tasks','videos','keys','env'].forEach(x=>{q('#tab-'+x).style.display=x===t?'block':'none';});
   tabLoadingNote(t,!LOADED_TABS.has(t));
   // 已有数据（预取过 / 来过）的页：只淡入一次；数据刷新回来后不再把表格行清空重播，
   // 否则同一批行先显示、又变透明逐行出现，看起来像「弹一下」
@@ -1201,6 +1219,7 @@ async function refreshTab(tab){
     else if(tab==='tasks')await loadTasks();
     else if(tab==='videos')await loadVideos();
     else if(tab==='keys')await loadKeys();
+    else if(tab==='env')await loadEnv();
     LOADED_TABS.add(tab);tabLoadingNote(tab,false);rowsEnter(tab);
     q('#lastUpdate').textContent='更新于 '+new Date().toLocaleTimeString();
     if(!tabsPrefetched)setTimeout(prefetchTabs,800);
@@ -4327,6 +4346,59 @@ async function loadKeys(){
   q('#keysTable').innerHTML=table([selAllBox('keys'),'Key','名称','允许时长','今日任务','并发','启用','最近使用','操作'],rows)
     +(r.env_keys>0?`<div class="hint" style="margin-top:10px">另有 ${r.env_keys} 个环境变量 key（永久有效，面板只读）</div>`:'');
   selUpdate('keys');
+}
+/* ---- 环境检查 ---- */
+// 每项的中文说明与处理办法写在这里（参与多语言）；接口只给事实（版本号、路径、报错原文）。
+const ENV_TEXT={
+  python:{ok:'3.11 及以上，全部功能可用。',warn:'3.10 靠兼容层运行，功能不受影响；源码部署可以一键换成 3.11 以上。',info:'3.10 靠兼容层运行；Docker 部署的解释器随镜像走。'},
+  node:{ok:'dola 纯 API 出片的 bdms 签名由它执行。',error:'dola 纯 API 出片要用 Node 跑签名，缺了它 dola 号只能走浏览器路径。'},
+  ffmpeg:{ok:'参考音频是 wav / m4a 等非 mp3 格式时用它转码。',warn:'参考音频不是 mp3 时无法转码；纯文字和 mp3 参考音频不受影响。'},
+  browser:{ok:'纯 API 失败时的浏览器兜底、2.0 的 15 秒工作模式用得到。',warn:'纯 API 出片不受影响，但浏览器兜底和 2.0 的 15 秒工作模式用不了。'},
+  signer:{ok:'第三方资产，自己裁剪过仓库的要注意它还在不在。',error:'dola 纯 API 出片依赖这个脚本，缺了整个纯 API 路径起不来。'},
+  deploy:{ok:'可以在面板「版本」里一键更新。',warn:'服务本身不受影响，只是不能在面板里一键更新。'},
+  storage:{ok:'任务库、号池库、视频和更新目录都在这里。',error:'目录不可写，任务会立刻失败。'},
+  disk:{ok:'视频默认保留 14 天，注意别堆满。',warn:'空间偏少，视频默认保留 14 天，建议清理。',error:'磁盘快满了，视频写不进来，任务会失败。'},
+  accounts:{ok:'号池里的账号数。',warn:'号池里还没有账号，任务会一直排队。'},
+  proxy:{ok:'没单独绑定代理的账号走这个出口，账号绑定优先。',warn:'没有默认代理，没绑代理的账号会直连。',info:'没单独绑定代理的账号走这个出口，账号绑定优先。出口是否可用请在「代理管理」里探测。'}
+};
+const ENV_FIX={
+  python:'右上角「版本」→「升级运行环境」',
+  node:'安装 Node.js 18+（apt install nodejs / brew install node），或把 DOLA_NODE 指向 node',
+  ffmpeg:'apt install ffmpeg / brew install ffmpeg',
+  browser:'python -m patchright install chromium（一键部署装在 .browsers，检查 PLAYWRIGHT_BROWSERS_PATH）',
+  signer:'从官方仓库重新拉取 dola_pool/protocol/js/ 目录',
+  deploy:'Docker：docker compose up -d 让 updater 容器起来；源码：sudo bash deploy/install-updater.sh',
+  storage:'检查目录属主与权限（源码部署要用部署账号运行服务）',
+  disk:'清理 downloads/ 或删掉「视频管理」里的旧视频',
+  accounts:'「账号管理」→「添加账号」或「批量添加」',
+  proxy:'在「代理管理」里给账号绑定代理，或设置 DOLA_PROXY'
+};
+const ENV_LABEL={python:'Python 运行环境',node:'Node.js',ffmpeg:'ffmpeg',browser:'浏览器内核',
+  signer:'签名脚本',deploy:'部署方式与一键更新',storage:'数据目录',disk:'磁盘空间',
+  accounts:'账号',proxy:'默认代理'};
+const ENV_LEVEL={ok:['b-green','正常'],warn:['b-orange','注意'],error:['b-red','异常'],info:['b-gray','参考']};
+let envData=null;
+async function loadEnv(refresh){
+  const r=await api('/api/admin/env-check'+(refresh?'?refresh=1':''));
+  envData=r;
+  const s=r.summary||{};
+  q('#envSummary').innerHTML='<span class="badge b-green">正常 '+ (s.ok||0) +'</span> '
+    +'<span class="badge b-orange">注意 '+ (s.warn||0) +'</span> '
+    +'<span class="badge b-red">异常 '+ (s.error||0) +'</span>'
+    +'<span class="hint" style="margin-left:10px">检查于 '+new Date(r.checked_at*1000).toLocaleTimeString()+'</span>';
+  q('#envTable').innerHTML=table(['项目','状态','当前值','说明'],
+    (r.items||[]).map(it=>{
+      const lv=ENV_LEVEL[it.level]||ENV_LEVEL.info;
+      const text=(ENV_TEXT[it.key]||{})[it.level]||'';
+      const fix=(it.level==='warn'||it.level==='error')&&ENV_FIX[it.key]
+        ?'<div class="tiny" style="margin-top:4px">处理：'+esc(ENV_FIX[it.key])+'</div>':'';
+      return [
+        ENV_LABEL[it.key]||it.key,
+        '<span class="badge '+lv[0]+'">'+lv[1]+'</span>',
+        it.value?noTr(it.value):'—',
+        esc(text)+(it.note?'<div class="tiny" style="margin-top:4px">'+noTr(it.note)+'</div>':'')+fix
+      ];
+    }));
 }
 async function setKey(key,on){
   try{await api('/api/admin/keys/'+encodeURIComponent(key),{method:'PATCH',body:{enabled:on}});}catch(e){alert(dialogText`${e.message}`);}refresh();

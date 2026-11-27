@@ -737,6 +737,7 @@ dola 自 2026-10-12 起对 30 秒请求回「只支持 4～15 秒，按 15 秒�
 | GET | `/api/admin/stats` | 总览统计（按账号/按 Key 用量） |
 | GET | `/api/admin/stress` | 压测状态 |
 | POST | `/api/admin/stress` | 启动压测 |
+| GET | `/api/admin/env-check` | 面板「环境检查」：Python / Node / ffmpeg / 浏览器内核 / 签名脚本 / 部署方式 / 数据目录 / 磁盘 / 账号数 / 默认代理。只查本机、不访问外网；返回 `{items:[{key,level,value,note}], summary, checked_at, deploy_mode}`，`level` 取 `ok`/`warn`/`error`/`info`。结果缓存 60 秒，`?refresh=1` 立即重跑 |
 
 ---
 
