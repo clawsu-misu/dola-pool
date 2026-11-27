@@ -26,6 +26,13 @@ SYSTEMCTL="${SYSTEMCTL:-systemctl}"
 VERIFY_SECONDS="${VERIFY_SECONDS:-120}"
 PY="${PY:-python3}"
 AGENT_COPY="${AGENT_COPY:-}"
+# 一键更新时顺带把虚拟环境换到 3.11+（面板点升级即可，不用登服务器跑 install.sh）。
+# 系统里已有 3.11/3.12 就用系统的；只有 3.10 时用 uv 装一个独立的到 DOLA_PYTHON_DIR。
+# 都不行就保持原解释器 —— 代码里有 asyncio.timeout 兼容层，3.10 也能跑。
+PY_TARGET_MIN="${PY_TARGET_MIN:-3.11}"
+PY_TARGET_VER="${PY_TARGET_VER:-3.12}"
+UV_BIN="${UV_BIN:-/usr/local/bin/uv}"
+DOLA_PYTHON_DIR="${DOLA_PYTHON_DIR:-/opt/dola-python}"
 
 REQ="$UPDATE_DIR/request.json"
 REQ_ID="" FROM="" TO="" TAG="" BK="" METHOD="" OLD_HEAD="" REQS_CHANGED=0 WORK=""
@@ -150,6 +157,63 @@ install_deps(){
       -r "$APP_DIR/deploy-extra-requirements.txt"
 }
 
+py_version(){ "$1" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo 0.0; }
+py_new_enough(){  # py_new_enough <python> <最低版本>：3.11 >= 3.11
+  "$1" - "$2" <<'PY' 2>/dev/null
+import sys
+need = tuple(int(x) for x in sys.argv[1].split("."))
+sys.exit(0 if sys.version_info[:2] >= need else 1)
+PY
+}
+
+upgrade_python(){
+  # 幂等：虚拟环境已经是 3.11+ 就什么都不做。换解释器要重建 venv（依赖不跨版本复用），
+  # 失败时保持原 venv 不动 —— 原解释器上代码仍能跑（兼容层），不算更新失败。
+  [ -x "$APP_DIR/.venv/bin/python" ] || return 0
+  py_new_enough "$APP_DIR/.venv/bin/python" "$PY_TARGET_MIN" && return 0
+
+  local cur cand=""
+  cur="$(py_version "$APP_DIR/.venv/bin/python")"
+  for c in "python${PY_TARGET_VER}" python3.13 python3.12 python3.11; do
+    if command -v "$c" >/dev/null && py_new_enough "$(command -v "$c")" "$PY_TARGET_MIN"; then
+      cand="$(command -v "$c")"; break
+    fi
+  done
+  if [ -z "$cand" ]; then
+    if [ ! -x "$UV_BIN" ]; then
+      curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$(dirname "$UV_BIN")" sh >/dev/null 2>&1 || true
+    fi
+    if [ -x "$UV_BIN" ]; then
+      env UV_PYTHON_INSTALL_DIR="$DOLA_PYTHON_DIR" "$UV_BIN" python install "$PY_TARGET_VER" >/dev/null 2>&1 || true
+      cand="$(find "$DOLA_PYTHON_DIR" -maxdepth 3 -type f -name "python${PY_TARGET_VER}" 2>/dev/null | head -1)"
+    fi
+  fi
+  if [ -z "$cand" ] || ! py_new_enough "$cand" "$PY_TARGET_MIN"; then
+    log "没有可用的 ${PY_TARGET_MIN}+，保持 Python ${cur}（兼容层已覆盖）"
+    return 0
+  fi
+
+  status installing "升级虚拟环境 Python $cur → $(py_version "$cand")"
+  # 先停服：venv 被挪走后，运行中的进程会从已不存在的路径懒加载模块
+  $SYSTEMCTL stop "$SERVICE" >/dev/null 2>&1 || true
+  local old="$APP_DIR/.venv.old-$(date -u +%Y%m%d-%H%M%S)"
+  mv "$APP_DIR/.venv" "$old" || return 0
+  if ! as_user "$cand" -m venv "$APP_DIR/.venv" \
+     || ! as_user "$APP_DIR/.venv/bin/pip" install -q --upgrade pip \
+     || ! as_user "$APP_DIR/.venv/bin/pip" install -q -r "$APP_DIR/requirements.txt" \
+            -r "$APP_DIR/deploy-extra-requirements.txt"; then
+    log "新虚拟环境安装失败，恢复原 Python $cur"
+    rm -rf "$APP_DIR/.venv"
+    mv "$old" "$APP_DIR/.venv" || return 1
+    return 0
+  fi
+  rm -rf "$old"
+  # 浏览器内核按解释器路径存放，换了 Python 要重装（纯 API 部署用不到，失败不影响）
+  as_user env PLAYWRIGHT_BROWSERS_PATH="$APP_DIR/.browsers" \
+      "$APP_DIR/.venv/bin/python" -m patchright install chromium >/dev/null 2>&1 || true
+  log "虚拟环境已换到 Python $(py_version "$APP_DIR/.venv/bin/python")"
+}
+
 wait_version(){  # wait_version <版本>
   local deadline=$(( $(date +%s) + VERIFY_SECONDS ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
@@ -213,6 +277,9 @@ main(){
        fetch_tarball || rollback "下载或解压 $TAG 失败" ;;
   esac
   [ "$(app_version "$APP_DIR")" = "$TO" ] || rollback "换代码后版本号不是 $TO"
+
+  # Python 先升级：换了解释器时 upgrade_python 已经装好依赖，下面的 install_deps 是幂等空跑
+  upgrade_python || rollback "升级虚拟环境 Python 失败"
 
   if [ "$(reqs_hash)" != "$before_reqs" ]; then
     REQS_CHANGED=1

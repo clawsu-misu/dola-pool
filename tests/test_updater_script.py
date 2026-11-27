@@ -153,3 +153,92 @@ def test_nothing_to_do_without_a_ready_request(tmp_path):
     result = run_updater(env)
     assert result.returncode == 0 and version_of(app) == "1.0.0"
     assert not (tmp_path / "update" / "agent-status.json").exists()
+
+
+def fake_python(stub, name, version):
+    """一个只认 `-c`、`-`（stdin 脚本）和 `-m venv` 的假解释器，模拟「新解释器」重建 venv。"""
+    path = stub / name
+    path.write_text(f"""#!/bin/bash
+if [ "$1" = "-c" ]; then echo "{version}"; exit 0; fi
+if [ "$1" = "-" ]; then cat >/dev/null; exit 0; fi
+if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then
+  mkdir -p "$3/bin"
+  printf '#!/bin/bash\\nexit 0\\n' > "$3/bin/pip"
+  printf '#!/bin/bash\\nif [ "$1" = "-c" ]; then echo "{version}"; else exit 0; fi\\n' > "$3/bin/python"
+  chmod +x "$3/bin/python" "$3/bin/pip"
+  exit 0
+fi
+echo "{version}"
+""")
+    path.chmod(0o755)
+    return path
+
+
+def _py_stub(path, version, new_enough):
+    """假解释器：-c 打版本号；从 stdin 读脚本（py_new_enough 的用法）时按 new_enough 退出。"""
+    path.write_text(f"""#!/bin/bash
+if [ "$1" = "-c" ]; then echo "{version}"; exit 0; fi
+if [ "$1" = "-" ]; then cat >/dev/null; exit {0 if new_enough else 1}; fi
+echo "{version}"
+""")
+    path.chmod(0o755)
+
+
+def old_venv(app):
+    """模拟升级前的 3.10 虚拟环境。"""
+    venv = app / ".venv"
+    (venv / "bin").mkdir(parents=True)
+    _py_stub(venv / "bin" / "python", "3.10", new_enough=False)
+    (venv / "bin" / "pip").write_text("#!/bin/bash\nexit 0\n")
+    (venv / "bin" / "pip").chmod(0o755)
+    (venv / "marker-old").write_text("old")
+    return venv
+
+
+def test_update_keeps_a_venv_that_is_already_new_enough(tmp_path):
+    origin = make_origin(tmp_path)
+    app = git_app(tmp_path, origin)
+    venv = old_venv(app)
+    _py_stub(venv / "bin" / "python", "3.12", new_enough=True)
+    env = make_env(tmp_path, app, origin)
+    result = run_updater(env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert version_of(app) == "1.1.0"
+    assert (venv / "marker-old").exists()                       # 没重建 venv
+
+
+def test_update_rebuilds_a_python310_venv_on_the_new_interpreter(tmp_path):
+    origin = make_origin(tmp_path)
+    app = git_app(tmp_path, origin)
+    venv = old_venv(app)
+    stub = tmp_path / "stub"
+    stub.mkdir(exist_ok=True)
+    (stub / "fake_pip").write_text("#!/bin/bash\nexit 0\n")
+    (stub / "fake_pip").chmod(0o755)
+    fake_python(stub, "python3.12", "3.12")
+    env = make_env(tmp_path, app, origin, PATH=f"{stub}:{os.environ['PATH']}")
+    result = run_updater(env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert version_of(app) == "1.1.0"
+    assert not (venv / "marker-old").exists()                   # 旧 venv 被换掉
+    assert "3.12" in (venv / "bin" / "python").read_text()
+    assert agent_status(tmp_path)["state"] == "done"
+
+
+def test_update_still_succeeds_when_no_newer_python_is_available(tmp_path):
+    """找不到 3.11+ 时不能把更新判失败：代码里有兼容层，3.10 照常跑。"""
+    origin = make_origin(tmp_path)
+    app = git_app(tmp_path, origin)
+    venv = old_venv(app)
+    stub = tmp_path / "stub"
+    stub.mkdir(exist_ok=True)
+    # 让 PATH 里所有 python3.1x 都指向一个「3.10」的假解释器：模拟机器上只有 3.10
+    for name in ("python3.11", "python3.12", "python3.13", "python3"):
+        (stub / name).symlink_to(venv / "bin" / "python")
+    env = make_env(tmp_path, app, origin, PATH=f"{stub}:{os.environ['PATH']}",
+                   UV_BIN=str(tmp_path / "no-uv"), DOLA_PYTHON_DIR=str(tmp_path / "no-py"))
+    result = run_updater(env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert version_of(app) == "1.1.0"
+    assert (venv / "marker-old").exists()                       # 原 venv 原样保留
+    assert agent_status(tmp_path)["state"] == "done"
