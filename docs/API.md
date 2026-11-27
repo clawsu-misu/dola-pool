@@ -738,6 +738,7 @@ dola 自 2026-10-12 起对 30 秒请求回「只支持 4～15 秒，按 15 秒�
 | GET | `/api/admin/stress` | 压测状态 |
 | POST | `/api/admin/stress` | 启动压测 |
 | GET | `/api/admin/env-check` | 面板「环境检查」：Python / Node / ffmpeg / 浏览器内核 / 签名脚本 / 部署方式 / 数据目录 / 磁盘 / 账号数 / 默认代理。只查本机、不访问外网；返回 `{items:[{key,level,value,note}], summary, checked_at, deploy_mode}`，`level` 取 `ok`/`warn`/`error`/`info`。结果缓存 60 秒，`?refresh=1` 立即重跑 |
+| GET / PATCH | `/api/admin/settings/cookie-mode` | Cookie 号出片方式。GET 返回 `{mode, browser_available, reason}`，`mode` 为 `pure`（默认）或 `browser`。PATCH 正文 `{"mode":"pure"|"browser"}`，保存后立即生效，不用重启。这个环境开不了浏览器时拒绝切到 `browser`（422，`detail` 即原因）；没在面板存过时沿用 `DOLA_PURE_API`，启动不会为了这个开关去起浏览器。已存的 `browser` 若重启后浏览器不可用，自动退回纯 API |
 
 ---
 
@@ -785,7 +786,7 @@ dola 自 2026-10-12 起对 30 秒请求回「只支持 4～15 秒，按 15 秒�
 
 | 变量 | 当前值 | 说明 |
 |---|---|---|
-| `DOLA_PURE_API` | `1` | cookie 号走纯 API（**需要 Node.js**，见附录 C）。⚠️ **纯 API 失败不回退浏览器**：`source=cookie` 的号直接抛真实错误，只有 login 号才走浏览器/扩展路径 |
+| `DOLA_PURE_API` | `1` | cookie 号默认走纯 API（**需要 Node.js**，见附录 C）。面板「设置 → Cookie 号出片方式」存过之后以面板为准，启动时覆盖这里。⚠️ **纯 API 失败不回退浏览器**：`source=cookie` 的号直接抛真实错误；只有改成浏览器模式，或本来就是 login 号，才走浏览器/扩展路径 |
 | `DOLA_PURE_REGION` / `DOLA_PURE_PC_VERSION` | `JP` / `3.33.11` | 上游区域与客户端版本 |
 | `DOLA_PURE_REMOVE_WATERMARK` | `0` | 第三方无水印解析接口（默认关闭；成片仍用 dola 自带的无水印直链） |
 | `DOLA_HEADLESS` | `1` | 浏览器无头；有头路径由 `xvfb-run` 提供显示 |

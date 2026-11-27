@@ -739,6 +739,7 @@ input[type=checkbox]:active{transform:scale(.88)}
           <button role="menuitem" onclick="closeTopMenu();openUpscaleSettings()">视频超分</button>
           <button role="menuitem" onclick="closeTopMenu();openResponderSettings()">AI 代答</button>
           <button role="menuitem" onclick="closeTopMenu();openWork15Settings()">2.0 的 15 秒</button>
+          <button role="menuitem" onclick="closeTopMenu();openCookieModeSettings()">Cookie 号出片方式</button>
           <button role="menuitem" onclick="closeTopMenu();openStress()">压力测试</button>
           <button role="menuitem" onclick="closeTopMenu();openPassword()">修改密码</button>
         </div>
@@ -1542,6 +1543,40 @@ async function saveWork15Settings(){
     const c=await api('/api/admin/settings/work-15s',{method:'PATCH',body:{enabled:q('#w15Enabled').checked,concurrency:Number(q('#w15Conc').value)}});
     TEST_GEN_DURATIONS['seedance-2.0-fast']=c.v20_durations.filter(d=>d!==30);
     fb.textContent=c.enabled?'已开启，立即生效。测试生成现在可以选 15 秒。':'已关闭，立即生效。';
+  }catch(e){if(e.message!=='unauthorized')fb.textContent='保存失败：'+e.message;}
+  finally{btn.disabled=false;}
+}
+
+/* ---- Cookie 号出片方式：纯 API（默认）或浏览器，保存后立即生效 ---- */
+async function openCookieModeSettings(){
+  showDlg(`<h2>Cookie 号出片方式</h2><p class="hint">正在读取设置…</p>`);
+  const epoch=dialogEpoch;
+  try{
+    const c=await api('/api/admin/settings/cookie-mode');
+    if(epoch!==dialogEpoch)return;
+    showDlg(`<h2>Cookie 号出片方式</h2>
+      <p class="hint">Cookie 导入的 dola 号默认走纯 API：不开浏览器，并发高。改成浏览器后，这些号和 Google 登录的号一样打开真实页面出片，页面自己带设备标识；每个任务占一个浏览器，30 秒两段拼接不可用。</p>
+      ${c.reason?`<p class="hint" role="alert" style="color:var(--red)">${esc(c.reason)}</p>`:''}
+      <label for="cookieMode">出片方式</label>
+      <select id="cookieMode">
+        <option value="pure" ${c.mode==='pure'?'selected':''}>纯 API（默认）</option>
+        <option value="browser" ${c.mode==='browser'?'selected':''} ${c.browser_available?'':'disabled'}>浏览器</option>
+      </select>
+      <p class="tiny">只影响 Cookie 导入的 dola 号；Google 登录的号本来就走浏览器，豆包号不受影响。已导入的号不用重新导入。浏览器不可用时仍可改回纯 API。</p>
+      <div id="cookieModeFeedback" class="tiny" role="status" style="margin:10px 0;min-height:18px"></div>
+      <div class="row"><button class="btn" onclick="hide('dlg')">关闭</button>
+        <button class="btn btn-p" id="cookieModeSave" onclick="saveCookieModeSettings()">保存</button></div>`);
+  }catch(e){
+    if(epoch===dialogEpoch&&e.message!=='unauthorized')showDlg(`<h2>Cookie 号出片方式</h2><p role="alert">${esc(e.message)}</p>
+      <div class="row"><button class="btn" onclick="hide('dlg')">关闭</button></div>`);
+  }
+}
+async function saveCookieModeSettings(){
+  const fb=q('#cookieModeFeedback'),btn=q('#cookieModeSave');if(!btn||btn.disabled)return;
+  btn.disabled=true;fb.textContent='正在保存…';
+  try{
+    const c=await api('/api/admin/settings/cookie-mode',{method:'PATCH',body:{mode:q('#cookieMode').value}});
+    fb.textContent=c.mode==='browser'?'已改为浏览器出片，立即生效。':'已改为纯 API 出片，立即生效。';
   }catch(e){if(e.message!=='unauthorized')fb.textContent='保存失败：'+e.message;}
   finally{btn.disabled=false;}
 }

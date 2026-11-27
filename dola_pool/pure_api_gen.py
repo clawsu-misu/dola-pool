@@ -1141,6 +1141,46 @@ def merge_split_segments(*, dola, session, ctx, segment_keys: list[str],
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def prepare_pure_session(cookie_state_path: str | Path, proxy: str = "",
+                         region: str | None = None, pc_version: str | None = None):
+    """建纯 API 会话并补齐设备标识，返回 (session, ctx, headers)。
+
+    dola 页面的 device_id 取自 /alice/user/launch/core 的 core.web_id（和 tea 的
+    web_id 不是同一个值）。拿到后写回 cookie_state.json 的 ctx，后续轮询和重启
+    续跑复用同一个设备号。身份接口失败不阻断：device_id 保持空，和旧行为一致。
+    """
+    dola = _dola()
+    state_file = Path(cookie_state_path)
+    session, ctx, headers = dola.setup_session(
+        region=region or config.PURE_API_REGION,
+        pc_version=pc_version or config.PURE_API_PC_VERSION,
+        proxy=proxy or "",
+        login_pure=True,
+        login_state_file=str(state_file),
+    )
+    try:
+        dola.warmup_login_session(session, headers)
+    except Exception as exc:
+        log.info("pure warmup_login_session warning: %s", str(exc)[:200])
+    try:
+        dola.dola_api_post_json(session, ctx, "/alice/user/get_web_anon_id", {}, label="get_web_anon_id")
+    except Exception as exc:
+        log.info("pure get_web_anon_id warning: %s", str(exc)[:200])
+    try:
+        core = dola.dola_api_post_json(session, ctx, "/alice/user/launch/core", {}, label="launch_core")
+        dola.apply_launch_core_to_ctx(ctx, core)
+    except Exception as exc:
+        log.info("pure launch/core warning: %s", str(exc)[:200])
+    try:
+        dola.dola_api_post_json(session, ctx, "/alice/user/launch", {}, label="launch")
+    except Exception as exc:
+        log.info("pure launch warning: %s", str(exc)[:200])
+    # 测试桩会把 ctx 做成一个不透明的值；只有真的是上下文字典才写回。
+    if isinstance(ctx, dict) and ctx.get("device_id"):
+        dola.save_identity_ctx(state_file, ctx)
+    return session, ctx, headers
+
+
 def probe_login(
     state_file: str | Path,
     proxy: str = "",
@@ -1174,9 +1214,16 @@ def probe_login(
         if agw != "1":
             return False, f"not logged in (x-tt-agw-login={agw or 'missing'})"
         try:
+            core = dola.dola_api_post_json(session, ctx, "/alice/user/launch/core", {}, label="launch_core")
+            dola.apply_launch_core_to_ctx(ctx, core)
+        except Exception:
+            pass
+        try:
             dola.dola_api_post_json(session, ctx, "/alice/user/launch", {}, label="launch")
         except Exception:
             pass
+        if ctx.get("device_id"):
+            dola.save_identity_ctx(state_file, ctx)
         return True, "logged_in"
     except Exception as exc:
         return False, str(exc).replace("\n", " ")[:400]
@@ -1244,9 +1291,16 @@ def hello_probe(
         else:
             status = "no_reply"      # 先假定没回复；拿到回复再改成 ok
             try:
+                core = dola.dola_api_post_json(session, ctx, "/alice/user/launch/core", {}, label="launch_core")
+                dola.apply_launch_core_to_ctx(ctx, core)
+            except Exception as exc:
+                log.info("hello_probe launch/core warning: %s", str(exc)[:200])
+            try:
                 dola.dola_api_post_json(session, ctx, "/alice/user/launch", {}, label="launch")
             except Exception as exc:
                 log.info("hello_probe launch warning: %s", str(exc)[:200])
+            if ctx.get("device_id"):
+                dola.save_identity_ctx(cookie_state_path, ctx)
             result = dola.submit_chat_completion(
                 session, ctx, headers, images=[], audios=[], prompt=prompt,
                 duration=0, model="", ratio=None, timeout_sec=timeout_sec,
@@ -1341,26 +1395,8 @@ def generate_pure_video(
     if not proxy:
         proxy = (config.PROXY or "").strip()
 
-    session, ctx, headers = dola.setup_session(
-        region=region,
-        pc_version=pc_version,
-        proxy=proxy or "",
-        login_pure=True,
-        login_state_file=str(state_file),
-    )
-    # 模拟 open_session 的探活/拉活。
-    try:
-        dola.warmup_login_session(session, headers)
-    except Exception as exc:
-        log.info("pure warmup_login_session warning %s: %s", account, str(exc)[:200])
-    try:
-        dola.dola_api_post_json(session, ctx, "/alice/user/get_web_anon_id", {}, label="get_web_anon_id")
-    except Exception as exc:
-        log.info("pure get_web_anon_id warning %s: %s", account, str(exc)[:200])
-    try:
-        dola.dola_api_post_json(session, ctx, "/alice/user/launch", {}, label="launch")
-    except Exception as exc:
-        log.info("pure launch warning %s: %s", account, str(exc)[:200])
+    session, ctx, headers = prepare_pure_session(
+        state_file, proxy=proxy or "", region=region, pc_version=pc_version)
 
     pure_model = _map_model(model, duration)
     # 参考图先上传拿到 uri，再和文本提示一起提交（协议层原本就支持）。

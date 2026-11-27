@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 
 from dola_pool import async_compat
 from dola_pool import config
+from dola_pool import cookie_mode
 from dola_pool import cred_store
 from dola_pool import failure_text
 from dola_pool.account_transport import http_proxy, redact_error
@@ -1510,6 +1511,7 @@ async def resume_incomplete_tasks():
     open_thread_pool()
     _load_responder()
     work_reply.apply_saved(store.get_setting(WORK_15S_KEY), store.get_setting(WORK_15S_CONCURRENCY_KEY))
+    cookie_mode.apply_saved(store.get_setting(COOKIE_MODE_KEY))
     # 15 秒额度锁在号池库里；按任务记录补齐，升级前用过的号不必各撞一次上限
     work_since = time.time() - work_reply.WORK_QUOTA_SECONDS
     restored = pool.restore_work_quota(store.work_videos_since(work_since))
@@ -2391,6 +2393,7 @@ async def admin_upscale_settings_save(body: UpscaleSettingsPatch, x_admin_key: s
 RESPONDER_KEY = "ai_responder"
 WORK_15S_KEY = "work_15s"
 WORK_15S_CONCURRENCY_KEY = "work_15s_concurrency"
+COOKIE_MODE_KEY = "cookie_mode"
 
 
 class Work15Patch(BaseModel):
@@ -2416,6 +2419,37 @@ async def admin_work_15s_save(body: Work15Patch, x_admin_key: str | None = Heade
         store.set_setting(WORK_15S_CONCURRENCY_KEY, str(body.concurrency))
         config.WORK_15S_CONCURRENCY = body.concurrency
     return work_reply.settings_view()
+
+
+def browser_mode_blocker() -> str:
+    """切到浏览器模式前的检查（起一次浏览器驱动，放线程里跑）。"""
+    return cookie_mode.unavailable_reason()
+
+
+class CookieModePatch(BaseModel):
+    mode: str
+
+
+@app.get("/api/admin/settings/cookie-mode")
+async def admin_cookie_mode_settings(x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    reason = await asyncio.to_thread(browser_mode_blocker)
+    return {"mode": "pure" if config.PURE_API_ENABLED else "browser",
+            "browser_available": not reason, "reason": reason}
+
+
+@app.patch("/api/admin/settings/cookie-mode")
+async def admin_cookie_mode_save(body: CookieModePatch, x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    if body.mode not in cookie_mode.MODES:
+        raise HTTPException(422, "mode 只能是 pure 或 browser")
+    if body.mode == "browser":
+        reason = await asyncio.to_thread(browser_mode_blocker)
+        if reason:
+            raise HTTPException(422, f"这个环境开不了浏览器出片：{reason}")
+    store.set_setting(COOKIE_MODE_KEY, body.mode)
+    config.PURE_API_ENABLED = body.mode == "pure"
+    return {"mode": body.mode, "browser_available": True, "reason": ""}
 
 
 class ResponderPatch(BaseModel):

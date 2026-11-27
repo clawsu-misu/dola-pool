@@ -11,6 +11,10 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _stubs():
+    # 桩只在本文件的测试里生效，结束时还原，避免污染后面导入的 browser。
+    stubbed = ("dola_pool.video_worker_ui", "dola_pool.browser", "patchright", "patchright.async_api")
+    saved = {key: sys.modules.get(key) for key in stubbed}
+
     def _mod(name):
         return types.ModuleType(name)
 
@@ -80,7 +84,14 @@ def _stubs():
     pr_api.async_playwright = _async_playwright
     sys.modules["patchright"] = pr
     sys.modules["patchright.async_api"] = pr_api
-    yield
+    try:
+        yield
+    finally:
+        for key, previous in saved.items():
+            if previous is None:
+                sys.modules.pop(key, None)
+            else:
+                sys.modules[key] = previous
 
 
 def test_verify_failure_keeps_profile_and_writes_state(tmp_path, monkeypatch):
