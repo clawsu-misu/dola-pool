@@ -7,7 +7,16 @@ from dola_pool.async_compat import _Timeout, timeout
 
 
 def _run(coro):
-    return asyncio.run(coro)
+    """用独立的新循环跑，不碰线程的当前循环。
+
+    asyncio.run() 会把当前循环置空，之后依赖 get_event_loop() 的老测试
+    就报 no current event loop；这里只建一个局部循环，跑完关掉。
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 def test_py310_timeout_becomes_timeout_error():
