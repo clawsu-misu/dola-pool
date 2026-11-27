@@ -26,7 +26,10 @@
   .check { display:flex; align-items:center; gap:6px; }
   button { padding:9px 20px; border-radius:8px; border:1px solid var(--accent); background:var(--accent);
            color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  button.ghost { background:#fff; color:var(--accent); padding:6px 12px; }
   button:disabled { opacity:.55; cursor:default; }
+  .iprow { display:flex; align-items:center; gap:8px; margin:8px 0 2px; }
+  #ipText { font:600 15px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break:break-all; }
   #log { margin:14px 0 0; padding:12px 14px; max-height:280px; overflow:auto; border-radius:10px;
          background:#111821; color:#d5dce6; font:12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
          white-space:pre-wrap; word-break:break-all; }
@@ -48,23 +51,30 @@
       <input id="f_account" placeholder="例如 acc1，与服务器上的号同名" autocomplete="off" spellcheck="false">
       <p class="hint">登录用的代理（出口必须是日本 / 韩国）</p>
       <div class="radios">
-        <label><input type="radio" name="proxy" value="p1024" checked> 1024Proxy 账密隧道</label>
+        <label><input type="radio" name="proxy" value="p1024" checked> 1024 账密（控制台原样）</label>
+        <label><input type="radio" name="proxy" value="p1024api"> 1024 API 提取</label>
         <label><input type="radio" name="proxy" value="url"> 自定义代理地址</label>
         <label><input type="radio" name="proxy" value="local"> 用本机号池里绑定的</label>
       </div>
       <div id="box_p1024">
+        <p class="hint">把控制台 curl 的三段原样填进来，工具不再拼接。<code>-x</code> 后面是网关，<code>-U</code> 引号里冒号前是用户名、冒号后是密码。用户名里的地区请在控制台选 JP 或 KR，不要用 Rand。</p>
+        <label for="f_gateway">网关（-x）</label>
+        <input id="f_gateway" placeholder="us.1024proxy.io:3000" autocomplete="off" spellcheck="false">
         <div class="row">
-          <div><label for="f_user">1024Proxy 账号</label><input id="f_user" autocomplete="off"></div>
-          <div><label for="f_pass">密码</label><input id="f_pass" type="password" autocomplete="new-password"></div>
+          <div><label for="f_user">用户名（-U 冒号前，整段）</label><input id="f_user" placeholder="账号-region-JP-sid-……-t-5" autocomplete="off" spellcheck="false"></div>
+          <div><label for="f_pass">密码（-U 冒号后）</label><input id="f_pass" type="password" autocomplete="new-password"></div>
         </div>
-        <div class="row">
-          <div><label for="f_gateway">网关 host:port</label><input id="f_gateway" placeholder="1024 控制台「账密认证 → 去使用」里查看" autocomplete="off"></div>
-          <div><label for="f_region">出口地区</label><input id="f_region" value="JP" autocomplete="off"></div>
+      </div>
+      <div id="box_p1024api" hidden>
+        <p class="hint">白名单认的是这台电脑的公网 IP，不是代理的日本出口。检测到后点复制，粘到 1024 控制台的白名单里添加。</p>
+        <div class="iprow">
+          <span id="ipText">尚未检测</span>
+          <button type="button" class="ghost" id="ipRefresh">检测</button>
+          <button type="button" class="ghost" id="ipCopy" disabled>复制</button>
         </div>
-        <div class="row">
-          <div><label for="f_session">会话 ID（可空，空 = 随机）</label><input id="f_session" autocomplete="off"></div>
-          <div><label for="f_ttl">粘性时长（分钟，1-120）</label><input id="f_ttl" value="120" inputmode="numeric" autocomplete="off"></div>
-        </div>
+        <label for="f_api">API 提取链接</label>
+        <input id="f_api" placeholder="https://white.1024proxy.com/white/api?region=JP&num=1&time=10&format=1&type=txt" autocomplete="off" spellcheck="false">
+        <p class="hint">链接里 region 用 JP 或 KR。提出来的只有地址，工具会连上去认协议（这种节点是 SOCKS5，按 HTTP 去连会被直接断开），再探测出口，连不上就不打开浏览器。地址有粘性时间，请在到期前完成登录。</p>
       </div>
       <div id="box_url" hidden>
         <label for="f_proxy_url">代理地址</label>
@@ -100,6 +110,7 @@
 const q = selector => document.querySelector(selector);
 const TOKEN = new URLSearchParams(location.search).get('token') || '';
 let timer = null;
+let publicIp = '';
 
 async function request(path, body) {
   const init = {method: 'GET', headers: {'X-Token': TOKEN}};
@@ -155,10 +166,11 @@ q('#loginForm').addEventListener('submit', async event => {
     account: val('#f_account'), proxy_kind: kind, fresh: q('#f_fresh').checked,
     proxy_url: val('#f_proxy_url'),
     p1024_user: val('#f_user'), p1024_pass: q('#f_pass').value, p1024_gateway: val('#f_gateway'),
-    p1024_region: val('#f_region'), p1024_session: val('#f_session'), p1024_ttl: val('#f_ttl'),
+    p1024_api: val('#f_api'),
   };
   if (!body.account) return banner('#loginBanner', 'bad', '请先填账号名');
-  if (kind === 'p1024' && !(body.p1024_user && body.p1024_gateway)) return banner('#loginBanner', 'bad', '1024Proxy 要填账号和网关地址');
+  if (kind === 'p1024' && !(body.p1024_user && body.p1024_pass && body.p1024_gateway)) return banner('#loginBanner', 'bad', '1024 账密要填网关、用户名和密码');
+  if (kind === 'p1024api' && !body.p1024_api) return banner('#loginBanner', 'bad', '请粘贴 1024 的 API 提取链接');
   if (kind === 'url' && !body.proxy_url) return banner('#loginBanner', 'bad', '请填代理地址');
   try { await request('/api/start', body); loop(); }
   catch (err) { banner('#loginBanner', 'bad', err.message); }
@@ -183,12 +195,43 @@ q('#pushForm').addEventListener('submit', async event => {
   }
 });
 
+async function detectIp() {
+  const box = q('#ipText');
+  const copy = q('#ipCopy');
+  publicIp = '';
+  box.textContent = '正在检测本机公网 IP…';
+  copy.disabled = true;
+  copy.textContent = '复制';
+  try {
+    const data = await request('/api/ip');
+    if (!data.ok || !data.ip) throw new Error(data.error || '没查到本机公网 IP');
+    publicIp = data.ip;
+    box.textContent = data.ip;
+    copy.disabled = false;
+  } catch (err) {
+    box.textContent = err.message;
+  }
+}
+
+q('#ipRefresh').addEventListener('click', () => detectIp());
+q('#ipCopy').addEventListener('click', async () => {
+  if (!publicIp) return;
+  try {
+    await navigator.clipboard.writeText(publicIp);
+    q('#ipCopy').textContent = '已复制';
+  } catch (err) {
+    q('#ipCopy').textContent = '复制失败，请手动选择上面的地址';
+  }
+});
+
 for (const radio of document.querySelectorAll('input[name=proxy]')) {
   radio.addEventListener('change', () => {
     const kind = document.querySelector('input[name=proxy]:checked').value;
     q('#box_p1024').hidden = kind !== 'p1024';
+    q('#box_p1024api').hidden = kind !== 'p1024api';
     q('#box_url').hidden = kind !== 'url';
     q('#local_hint').hidden = kind !== 'local';
+    if (kind === 'p1024api') detectIp();
   });
 }
 
