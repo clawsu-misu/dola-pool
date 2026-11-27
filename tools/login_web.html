@@ -30,6 +30,9 @@
   button:disabled { opacity:.55; cursor:default; }
   .iprow { display:flex; align-items:center; gap:8px; margin:8px 0 2px; }
   #ipText { font:600 15px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break:break-all; }
+  #smsCode { margin:10px 0 4px; font:700 40px/1.1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing:.18em; }
+  #smsCode.empty { font-size:15px; font-weight:600; letter-spacing:0; color:var(--muted); font-family:inherit; }
+  #smsText { word-break:break-all; }
   #log { margin:14px 0 0; padding:12px 14px; max-height:280px; overflow:auto; border-radius:10px;
          background:#111821; color:#d5dce6; font:12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
          white-space:pre-wrap; word-break:break-all; }
@@ -43,6 +46,21 @@
 </head>
 <body>
 <main>
+  <section>
+    <h2>短信验证码</h2>
+    <p class="hint">把买号时给的整行粘进来（号码----收码链接），本页直接读码，不另开窗口。点「复制号码」粘到登录页的手机号框。这一行记在这台浏览器里，读到后也会写到启动目录的 <code>sms-record.txt</code>（这个文件不会进 git）。</p>
+    <label for="smsSource">号码和收码链接</label>
+    <input id="smsSource" placeholder="+18647089355----https://xsd20vip.com/smsrecord?token=查询码" autocomplete="off" spellcheck="false">
+    <div class="iprow">
+      <button type="button" class="ghost" id="smsDial" hidden>复制号码</button>
+      <button type="button" class="ghost" id="smsRefresh">刷新</button>
+      <button type="button" class="ghost" id="smsCopy" disabled>复制验证码</button>
+      <label class="check"><input type="checkbox" id="smsAuto" checked> 自动刷新（每 3 秒）</label>
+    </div>
+    <div id="smsCode" class="empty">先粘贴号码和收码链接</div>
+    <p id="smsText" class="hint"></p>
+  </section>
+
   <section>
     <h1>Dola 本地登录 · 导出 Cookie</h1>
     <p class="hint">点「开始登录」后这台电脑会弹出一个浏览器窗口，<b>你在里面手动登录</b>（Google / Apple / 手机号都行，滑块手拖）。登进去之后工具自动导出 Cookie 并复制到剪贴板。</p>
@@ -111,6 +129,10 @@ const q = selector => document.querySelector(selector);
 const TOKEN = new URLSearchParams(location.search).get('token') || '';
 let timer = null;
 let publicIp = '';
+let smsTimer = null;
+let smsBusy = false;
+let smsCode = '';
+let smsDial = '';
 
 async function request(path, body) {
   const init = {method: 'GET', headers: {'X-Token': TOKEN}};
@@ -235,7 +257,116 @@ for (const radio of document.querySelectorAll('input[name=proxy]')) {
   });
 }
 
+// 输入框里的一行是买号时给的「号码----收码链接」，只贴链接也行
+function parseSmsSource(text) {
+  const found = text.match(/^\s*(.*?)\s*-{4,}\s*(\S+)\s*$/);
+  return found ? {phone: found[1].trim(), url: found[2]} : {phone: '', url: text.trim()};
+}
+
+// 登录页的区号是单独选的，手机号框只要 +1 后面那十位；别的区号原样给数字
+function dialOf(phone) {
+  const compact = phone.replace(/[\s()-]/g, '');
+  return compact.startsWith('+1') ? compact.slice(2) : compact.replace(/^\+/, '');
+}
+
+function rememberSmsSource(source) {
+  try { localStorage.setItem('dolaSmsSource', source); } catch (err) {}
+}
+
+function showDial() {
+  smsDial = dialOf(parseSmsSource(q('#smsSource').value).phone);
+  q('#smsDial').hidden = !smsDial;
+  q('#smsDial').textContent = '复制号码' + (smsDial ? ' ' + smsDial : '');
+}
+
+// 清掉显示：换了号以后，上一个号的验证码不能再留在页面上
+function resetSms(text) {
+  smsCode = '';
+  q('#smsCode').textContent = text;
+  q('#smsCode').className = 'empty';
+  q('#smsCopy').disabled = true;
+  q('#smsCopy').textContent = '复制验证码';
+  q('#smsText').textContent = '';
+}
+
+function renderSms(data) {
+  if (!data || data.ok === false) {
+    resetSms('读取失败');
+    q('#smsText').textContent = (data && data.error) || '';
+    return;
+  }
+  if (smsCode !== (data.code || '')) q('#smsCopy').textContent = '复制验证码';   // 换了验证码，上一个「已复制」不作数
+  smsCode = data.code || '';
+  q('#smsCode').textContent = smsCode || '暂无验证码';
+  q('#smsCode').className = smsCode ? '' : 'empty';
+  q('#smsCopy').disabled = !smsCode;
+  q('#smsText').textContent = (data.text || '') + ' · ' + new Date().toLocaleTimeString();
+}
+
+async function refreshSms() {
+  const source = q('#smsSource').value.trim();
+  rememberSmsSource(source);
+  if (!source) return resetSms('先粘贴号码和收码链接');
+  if (smsBusy) return;
+  smsBusy = true;
+  let data;
+  try { data = await request('/api/sms', {source}); }
+  catch (err) { data = {ok: false, error: err.message}; }
+  finally { smsBusy = false; }
+  if (source !== q('#smsSource').value.trim()) return refreshSms();   // 等待期间换了号：改读新号，旧号的结果不画
+  renderSms(data);
+}
+
+function scheduleSms() {
+  if (smsTimer) clearTimeout(smsTimer);
+  smsTimer = null;
+  if (!q('#smsAuto').checked || !q('#smsSource').value.trim()) return;
+  smsTimer = setTimeout(async () => { await refreshSms(); scheduleSms(); }, 3000);
+}
+
+async function loadSmsSource() {
+  let saved = '';
+  try {
+    saved = ((await request('/api/sms-source')).source || '').trim();
+  } catch (err) {}
+  if (!saved) {
+    try { saved = (localStorage.getItem('dolaSmsSource') || '').trim(); } catch (err) {}
+  }
+  if (saved && !q('#smsSource').value.trim()) q('#smsSource').value = saved;
+  showDial();
+  if (q('#smsSource').value.trim()) await refreshSms();
+  scheduleSms();
+}
+
+q('#smsRefresh').addEventListener('click', async () => { await refreshSms(); scheduleSms(); });
+q('#smsDial').addEventListener('click', async () => {
+  if (!smsDial) return;
+  try {
+    await navigator.clipboard.writeText(smsDial);
+    q('#smsDial').textContent = '已复制 ' + smsDial;
+  } catch (err) {
+    q('#smsDial').textContent = '复制失败 ' + smsDial;
+  }
+});
+q('#smsCopy').addEventListener('click', async () => {
+  if (!smsCode) return;
+  try {
+    await navigator.clipboard.writeText(smsCode);
+    q('#smsCopy').textContent = '已复制';
+  } catch (err) {
+    q('#smsCopy').textContent = '复制失败，请手动选择上面的数字';
+  }
+});
+q('#smsAuto').addEventListener('change', () => scheduleSms());
+// 改了输入框：「复制号码」立刻跟着变，上一个号的验证码不再显示；离开输入框时马上读一次
+q('#smsSource').addEventListener('input', () => {
+  showDial();
+  resetSms(q('#smsSource').value.trim() ? '尚未读取' : '先粘贴号码和收码链接');
+});
+q('#smsSource').addEventListener('change', async () => { await refreshSms(); scheduleSms(); });
+
 loop();
+loadSmsSource();
 </script>
 </body>
 </html>
