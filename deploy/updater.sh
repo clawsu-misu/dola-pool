@@ -265,18 +265,23 @@ main(){
   status backing_up "备份代码和数据库到 $BK"
   backup || fail_unchanged "备份失败"
 
-  status downloading "下载 $TAG"
   local before_reqs
   before_reqs="$(reqs_hash)"
-  GIT_PROBLEM=""
-  fetch_git
-  case $? in
-    0) METHOD=git ;;
-    2) fail_unchanged "${GIT_PROBLEM}，不能自动更新" ;;
-    *) METHOD=tarball
-       fetch_tarball || rollback "下载或解压 $TAG 失败" ;;
-  esac
-  [ "$(app_version "$APP_DIR")" = "$TO" ] || rollback "换代码后版本号不是 $TO"
+  if [ "$FROM" = "$TO" ]; then
+    # 版本已是最新、只是重装运行环境（面板「升级运行环境」）：代码不动，只重建 venv 后重启
+    METHOD=rerun
+    status installing "版本不变（${TO}），只重建运行环境"
+  else
+    GIT_PROBLEM=""
+    fetch_git
+    case $? in
+      0) METHOD=git ;;
+      2) fail_unchanged "${GIT_PROBLEM}，不能自动更新" ;;
+      *) METHOD=tarball
+         fetch_tarball || rollback "下载或解压 $TAG 失败" ;;
+    esac
+    [ "$(app_version "$APP_DIR")" = "$TO" ] || rollback "换代码后版本号不是 $TO"
+  fi
 
   # Python 先升级：换了解释器时 upgrade_python 已经装好依赖，下面的 install_deps 是幂等空跑
   upgrade_python || rollback "升级虚拟环境 Python 失败"
@@ -296,7 +301,11 @@ main(){
   if [ -n "$AGENT_COPY" ] && [ -f "$APP_DIR/deploy/updater.sh" ]; then
     install -m 755 "$APP_DIR/deploy/updater.sh" "$AGENT_COPY" 2>/dev/null || true
   fi
-  status done "已更新到 ${TO}（${METHOD}；备份 ${BK}）"
+  if [ "$METHOD" = rerun ]; then
+    status done "运行环境已重建（Python $(py_version "$APP_DIR/.venv/bin/python")；备份 ${BK}）"
+  else
+    status done "已更新到 ${TO}（${METHOD}；备份 ${BK}）"
+  fi
 }
 
 main "$@"
