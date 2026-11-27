@@ -72,11 +72,14 @@ class TaskStore:
                 ("deadline_at", "REAL"),
                 ("last_poll_at", "REAL"),
                 ("failure_code", "TEXT"),
+                ("upstream_error", "TEXT"),
                 ("reference_images", "TEXT"),
                 ("reference_thumbs", "TEXT"),
                 ("reference_source", "TEXT DEFAULT 'unspecified'"),
                 ("prompt_supplement", "TEXT DEFAULT ''"),
+                # execution_mode：实际执行方式（派到号后更新）；requested_mode：客户请求的，重新受理时按它派号
                 ("execution_mode", "TEXT DEFAULT 'auto'"),
+                ("requested_mode", "TEXT DEFAULT ''"),
                 ("video_count", "INTEGER DEFAULT 1"),
                 ("work_video_results", "TEXT DEFAULT ''"),
                 ("api_key_hash", "TEXT"),
@@ -280,8 +283,8 @@ class TaskStore:
                 "id,model,prompt,ratio,duration,status,account,created_at,updated_at,"
                 "conversation_id,deadline_at,last_poll_at,failure_code,reference_images,"
                 "api_key_hash,api_key_name,started_at,finished_at,client_concurrency_limit,"
-                "reference_source,prompt_supplement,execution_mode,video_count"
-                ") VALUES (?,?,?,?,?,'queued',?,?,?,NULL,NULL,0,NULL,?,?,?,?,?,?,?,?,?,?)",
+                "reference_source,prompt_supplement,execution_mode,requested_mode,video_count"
+                ") VALUES (?,?,?,?,?,'queued',?,?,?,NULL,NULL,0,NULL,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     task_id,
                     clamped["model"],
@@ -299,6 +302,7 @@ class TaskStore:
                     max(0, int(concurrency_limit or 0)),
                     clamped["reference_source"],
                     clamped["prompt_supplement"],
+                    execution_mode,
                     execution_mode,
                     video_count,
                 ),
@@ -355,6 +359,8 @@ class TaskStore:
     def update(self, task_id, **fields):
         if not fields:
             return
+        if fields.get("status") == "completed":
+            fields.update(failure_code=None, upstream_error=None)
         fields = self._clamp_fields(fields)
         fields["updated_at"] = time.time()
         cols = ", ".join(f"{k}=?" for k in fields)

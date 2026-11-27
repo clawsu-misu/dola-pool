@@ -38,6 +38,7 @@ from dola_pool import dola_responder
 from dola_pool import failure_text
 from dola_pool import proxy_store
 from dola_pool import sites
+from dola_pool import upstream_error
 from dola_pool.concurrency import AdjustableConcurrency
 from dola_pool.doubao_gen import (
     DoubaoModelLockedError, DoubaoPlanUnavailableError, DoubaoQuotaError,
@@ -539,13 +540,18 @@ class BrowserPool:
         return kind
 
     def execution_mode_for(self, name: str, requested: str = "auto") -> str:
-        row = self._meta(name)
-        if row and self.site_of(name) == sites.DOUBAO:
-            if row["doubao_account_type"] == "work":
-                return "work"
-            if row["doubao_account_type"] == "personal":
-                return "auto"
+        """这个号实际用的执行方式。显式 chat / work 照办；auto 时豆包工作号走 work、其余走 chat。
+
+        Dola 的 auto 不在这里展开：它看模型、时长和面板开关（uses_work_mode / uses_work_pair）。
+        """
+        if requested == "auto" and self.site_of(name) == sites.DOUBAO:
+            return "work" if self._doubao_work_only(name) else "chat"
         return requested
+
+    def _doubao_work_only(self, name: str) -> bool:
+        """豆包工作号只有工作模式，没有普通创作入口。"""
+        row = self._meta(name)
+        return bool(row and row["doubao_account_type"] == "work")
 
     def ensure_account(self, name: str) -> None:
         """确保账号在 accounts_meta 有行（新账号打标/写邮箱前调用）。"""
@@ -1684,6 +1690,13 @@ class BrowserPool:
         from dola_pool.account_transport import requests_proxy
         return requests_proxy(name) or ""
 
+    def _proxy_disabled(self, name: str) -> bool:
+        """绑了代理但停用：不派单。读不到绑定时按停用处理，不冒险直连。"""
+        try:
+            return proxy_store.binding_disabled(name)
+        except Exception:
+            return True
+
     def _has_bound_proxy(self, name: str) -> bool:
         try:
             return bool(proxy_store.get_account_proxy(name))
@@ -1695,8 +1708,8 @@ class BrowserPool:
 
         返回 (能用, 说明)。说明为空表示一切正常。静态代理换不了，只能本轮跳过。
         """
-        if config.ISOLATE_SHARED_EGRESS and not self._has_bound_proxy(name):
-            return False, "账号没有启用的绑定代理，严格隔离模式禁止提交"
+        if config.ISOLATE_SHARED_EGRESS and self._proxy_disabled(name):
+            return False, "账号绑定的代理已停用，严格隔离模式禁止提交"
         if not config.EGRESS_PRECHECK or not self._has_bound_proxy(name):
             return True, ""      # 只检测绑定了代理的号；未绑定的走全局默认代理，换不了也不归它管
         try:
@@ -2040,7 +2053,8 @@ class BrowserPool:
 
     async def _generate_effective(self, account, prompt, ratio, duration, model, *,
                                   on_conversation_id, on_poll, on_balance,
-                                  reference_image_paths, on_retry=None, work_mode=False, video_count=1):
+                                  reference_image_paths, on_retry=None, work_mode=False, video_count=1,
+                                  execution_mode="auto"):
         """cookie 账号走纯 API；失败直接抛出真实原因（不再回退浏览器）。
 
         浏览器 profile 对 cookie 号不可靠（导入的浏览器会话常显示已登出），
@@ -2065,7 +2079,10 @@ class BrowserPool:
 
         pure_state = self._pure_state(account)
         site = self.site_of(account)
-        work_mode = work_mode or uses_work_mode(model, duration) or self.execution_mode_for(account) == "work"
+        mode = self.execution_mode_for(account, execution_mode)
+        work_mode = mode != "chat" and (work_mode or mode == "work" or uses_work_mode(model, duration))
+        if mode == "chat" and site == sites.DOUBAO and self._doubao_work_only(account):
+            raise PreSubmissionParametersError(f"{account} 是豆包工作号，没有普通模式（chat）；请用 work 或 auto")
         if site == sites.DOUBAO or sites.is_doubao_model(model):
             if site != sites.DOUBAO or not sites.is_doubao_model(model):
                 raise RuntimeError(f"{account} 是 {sites.SITE_LABELS[site]} 号，接不了模型 {model}")
@@ -2172,8 +2189,9 @@ class BrowserPool:
         except Exception:  # noqa: BLE001
             proxied = True
         execution_mode = self.execution_mode_for(account, execution_mode)
-        if not proxied and uses_work_mode(model, duration, execution_mode):
-            out.append("工作模式需要绑定启用的账号代理，缺少代理时不会提交")
+        if ((config.ISOLATE_SHARED_EGRESS or uses_work_mode(model, duration, execution_mode))
+                and self._proxy_disabled(account)):
+            out.append("该号绑定的代理已停用，不会提交；请启用、更换或解绑代理")
         elif not proxied and row.get("site") != sites.DOUBAO:
             out.append("该号没绑代理，会用服务器本机 IP 直连；服务器不在日本/韩国时 dola 会拒绝"
                        "（710022002 或地区限制）")
@@ -2188,7 +2206,8 @@ class BrowserPool:
 
     async def test_generate(self, account: str, prompt: str, ratio: str | None = None,
                             duration: int = 10, model: str = "seedance-2.0-fast",
-                            on_poll=None, on_conversation_id=None, execution_mode="auto", video_count=1) -> dict:
+                            on_poll=None, on_conversation_id=None, execution_mode="auto", video_count=1,
+                            reference_image_paths: list[str] | None = None) -> dict:
         """账号级测试出片：强制用指定账号生成一条，返回成功/失败与成品 URL。
 
         不经过号池选号调度（跳过 _schedulable / 每日上限等），只验证该号本身能否出片。
@@ -2196,7 +2215,7 @@ class BrowserPool:
         """
         if account not in self.accounts:
             raise FileNotFoundError(f"profile 不存在: {account}")
-        if execution_mode == "auto" and self.site_of(account) == sites.DOUBAO and not sites.is_doubao_model(model):
+        if execution_mode != "work" and self.site_of(account) == sites.DOUBAO and not sites.is_doubao_model(model):
             # 面板「测试生成」默认是 dola 模型：豆包号换成免费号也能用的 Mini（时长夹到 15 秒内）
             model = "doubao-seedance-2.0-mini"
             duration = max(sites.DOUBAO_MIN_DURATION, min(15, int(duration or 5)))
@@ -2214,9 +2233,10 @@ class BrowserPool:
                 result = await self._generate_effective(
                     account, prompt, ratio, duration, model,
                     on_conversation_id=on_conversation_id, on_poll=on_poll, on_balance=on_balance,
-                    reference_image_paths=[],
+                    reference_image_paths=list(reference_image_paths or []),
                     work_mode=using_work,
                     video_count=video_count,
+                    execution_mode=execution_mode,
                 )
                 local = result.get("local_path")
                 linked = result.get("delivery") == "link" and result.get("video_url")
@@ -2241,14 +2261,14 @@ class BrowserPool:
                     "conversation_id": result.get("conversation_id"),
                 }
             except (PreSubmissionUploadError, PreSubmissionParametersError) as exc:
-                return {"ok": False, "account": account, "error": str(exc)}   # 没发出去，不是超时
+                return {"ok": False, "account": account, "error": str(exc), **upstream_error.failure_fields(exc)}   # 没发出去，不是超时
             except TimeoutError as exc:
                 if weekly:
                     self.note_work_suspect(account)
-                return {"ok": False, "account": account, "error": f"生成超时: {exc}", "recoverable": True}
+                return {"ok": False, "account": account, "error": f"生成超时: {exc}", **upstream_error.failure_fields(exc), "recoverable": True}
             except ShortClipError as exc:
                 # 只给了短视频（例如 30 秒只回 15 秒）：不拼接、也不把这个号标成失败。
-                return {"ok": False, "account": account, "error": str(exc)[:300]}
+                return {"ok": False, "account": account, "error": str(exc)[:300], **upstream_error.failure_fields(exc)}
             except LoginExpiredError as exc:
                 self._set_risk(account, str(exc))
                 return {"ok": False, "account": account, "error": f"登录态失效: {exc}"}
@@ -2256,32 +2276,32 @@ class BrowserPool:
                 return {"ok": False, "account": account, "error": f"profile 缺失: {exc}"}
             except WorkQuotaError as exc:
                 self._mark_work_blocked(account, exc.until, str(exc))
-                return {"ok": False, "account": account, "error": str(exc)[:1500]}
+                return {"ok": False, "account": account, "error": str(exc)[:1500], **upstream_error.failure_fields(exc)}
             except DoubaoModelLockedError as exc:
                 self.set_tier(account, "free")
-                return {"ok": False, "account": account, "error": str(exc)[:300]}
+                return {"ok": False, "account": account, "error": str(exc)[:300], **upstream_error.failure_fields(exc)}
             except DoubaoPlanUnavailableError as exc:
                 self._mark_abnormal(account, str(exc))
-                return {"ok": False, "account": account, "error": str(exc)[:500]}
+                return {"ok": False, "account": account, "error": str(exc)[:500], **upstream_error.failure_fields(exc)}
             except (AIAccountUnavailableError, VideoSkillUnavailableError) as exc:
                 self._mark_abnormal(account, str(exc))
-                return {"ok": False, "account": account, "error": str(exc)[:1500]}
+                return {"ok": False, "account": account, "error": str(exc)[:1500], **upstream_error.failure_fields(exc)}
             except DoubaoQuotaError as exc:
                 self._mark_daily_limit(account, str(exc), until=quota_recover_at(str(exc)))
-                return {"ok": False, "account": account, "error": str(exc)[:300]}
+                return {"ok": False, "account": account, "error": str(exc)[:300], **upstream_error.failure_fields(exc)}
             except Exception as exc:
                 from dola_pool.generation_errors import WorkVideoMismatchError
                 if isinstance(exc, WorkVideoMismatchError):
                     result = exc.result
                     local = result.get("local_path")
-                    return {**result, "ok": False, "account": account, "error": str(exc),
+                    return {**result, "ok": False, "account": account, "error": str(exc), **upstream_error.failure_fields(exc),
                             "video_url": f"{config.PUBLIC_BASE}/videos/{Path(local).name}" if local else result.get("video_url", "")}
                 if "登录态失效" in str(exc):
                     self._set_risk(account, str(exc))
                 else:
                     # 测试生成同样要按上游文案落状态：瞬时限流只短冷却，不当成永久失败。
                     self._note_upstream_failure(account, str(exc))
-                return {"ok": False, "account": account, "error": str(exc)[:300]}
+                return {"ok": False, "account": account, "error": str(exc)[:300], **upstream_error.failure_fields(exc)}
 
     async def generate_image(self, prompt: str, model: str, *, ratio: str | None = None,
                              size: str | None = None, n: int | None = None,
@@ -2613,6 +2633,8 @@ class BrowserPool:
                 rows = [a for a in self.list_accounts() if a.get("site") == sites.DOUBAO]
                 if not rows:
                     raise RuntimeError(f"号池里没有豆包号，接不了 {model}；请先在账号管理导入 doubao.com 的 Cookie")
+                if execution_mode == "chat" and all(a.get("doubao_account_type") == "work" for a in rows):
+                    raise RuntimeError("号池里的豆包号都是工作号，没有普通模式（chat）；请改用 execution_mode=work 或 auto")
                 if member_only and all(a.get("tier") == "free" for a in rows):
                     raise RuntimeError(f"{model} 只有豆包会员号能用，号池里的豆包号都是免费号；"
                                        "免费号请用 doubao-seedance-2.0-mini 或 doubao-seedance-2.0-fast")
@@ -2649,6 +2671,11 @@ class BrowserPool:
                 except Exception:
                     pass
 
+            def serves_mode(a) -> bool:
+                """显式 chat 不派给豆包工作号（它们只有工作模式）。"""
+                return not (execution_mode == "chat" and want_site == sites.DOUBAO
+                            and a.get("doubao_account_type") == "work")
+
             def attempts_left() -> bool:
                 return unlimited or attempt < max_attempts
 
@@ -2661,7 +2688,7 @@ class BrowserPool:
                     if exhausted:
                         raise RuntimeError(exhausted)
                 if want_site == sites.DOUBAO:
-                    locked = doubao_all_locked(self.list_accounts(), model, member_only,
+                    locked = doubao_all_locked([a for a in self.list_accounts() if serves_mode(a)], model, member_only,
                                                deadline if deadline is not None else time.time())
                     if locked:
                         raise RuntimeError(locked)
@@ -2676,13 +2703,15 @@ class BrowserPool:
                 short_seen = 0
                 non_pure: list[str] = []   # pair 单跳过的浏览器登录号（拼接只走纯 API）
                 busy_names: list[str] = []  # 能接单、但正被别的任务占着出片的号
-                missing_proxies: list[str] = []
+                disabled_proxies: list[str] = []
                 candidates = self._ordered_candidates(allowed_groups)
                 for a in (self._work_order(candidates) if work_job else candidates):
                     if a["name"] in tried or a["name"] in (excluded_accounts or ()):
                         continue
                     # 站点要对上：dola 模型只派 dola 号，豆包模型只派豆包号
                     if a.get("site", sites.DOLA) != want_site:
+                        continue
+                    if not serves_mode(a):
                         continue
                     account_work = browser_work
                     if want_site == sites.DOUBAO:
@@ -2712,8 +2741,8 @@ class BrowserPool:
                         if a["remaining"] < need:
                             short_seen += 1
                             continue
-                    if (config.ISOLATE_SHARED_EGRESS or account_work) and not self._has_bound_proxy(a["name"]):
-                        missing_proxies.append(a["name"])
+                    if (config.ISOLATE_SHARED_EGRESS or account_work) and self._proxy_disabled(a["name"]):
+                        disabled_proxies.append(a["name"])
                         continue
                     # 两段拼接只在纯 API 路径实现（浏览器号会按 30 秒原样提交，拿不到片）
                     if pair_job and not self.is_pure_account(a["name"]):
@@ -2819,7 +2848,8 @@ class BrowserPool:
                                         on_conversation_id=acknowledged, on_poll=on_poll,
                                         on_balance=on_balance,
                                         reference_image_paths=reference_image_paths,
-                                        on_retry=restarted, work_mode=account_work, video_count=video_count)
+                                        on_retry=restarted, work_mode=account_work, video_count=video_count,
+                                        execution_mode=execution_mode)
                             except TimeoutError:
                                 if preparation.expired():
                                     raise TimeoutError(
@@ -3028,9 +3058,9 @@ class BrowserPool:
                         tried_order.append(account)
                         if not attempts_left() or not time_left():
                             break
-                if (not picked and missing_proxies and not throttle_wait and not waiting_possible
+                if (not picked and disabled_proxies and not throttle_wait and not waiting_possible
                         and not temporary_reason and not group_wait):
-                    reason = f"账号缺少启用的绑定代理，尚未提交生成：{'、'.join(missing_proxies[:8])}；请在代理管理绑定后重试"
+                    reason = f"账号绑定的代理已停用，尚未提交生成：{'、'.join(disabled_proxies[:8])}；请在代理管理启用、更换或解绑后重试"
                     if last_err is None:
                         raise RuntimeError(reason)
                     say(reason)
@@ -3133,11 +3163,11 @@ class BrowserPool:
             if self.all_accounts_quota_blocked:
                 raise AllAccountsQuotaBlockedError(
                     f"429: 所有已开启调度的账号均已知积分不足: {last_err or '无号'}"
-                )
+                ) from last_err
             if self.all_accounts_limited:
                 raise AllAccountsLimitedError(
                     f"429: 所有已开启调度的账号均已达到 Dola 每日视频上限: {last_err or '无号'}"
-                )
+                ) from last_err
             if group_wait:
                 # 池子没到「全池上限/积分不足」，但符合本次模型额度要求的号一个都没有
                 waited = int(config.V20_WAIT_SECONDS // 60)
@@ -3164,7 +3194,7 @@ class BrowserPool:
                     # 不在这里截断：上游拒稿原文（审核/肖像/侵权）本身可能上百字，
                     # 截成 300 字会把原因切掉。长度上限由 server 落库时统一处理。
                     f"{prefix}连续 {attempt} 次生成均失败（依次尝试账号: {chain}）: {str(last_err)[:1500]}"
-                )
+                ) from last_err               # 保留原异常，落库时才取得到上游错误码
             if busy_timeout and last_err is None and not picked:
                 raise RuntimeError(
                     "能接这一单的号都在出片中，排队到任务时限仍未空出；请稍后重试"
