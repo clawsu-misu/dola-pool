@@ -1,5 +1,19 @@
 # 更新日志
 
+## 2.9.11 — 2026-11-27
+
+### 修复
+
+- Cookie 号纯 API 出片补上 `device_id`。页面请求里的 `device_id` 是 `/alice/user/launch/core` 返回的 `core.web_id`，和 tea 缓存里的 `web_id` 不是同一个数；v2.9.10 只补了后者，提交时设备号仍是空的。现在出片、登录探测、你好探测都会调 launch/core，只在 `device_id` 为空时写入，并原子写回 `cookie_state.json` 的 `ctx`（只动 `fp` / `web_id` / `tea_uuid` / `device_id`，登录态其余字段不动）。接口失败就保持空设备号，不阻断出片。**还没拿真实上游验证过**这是否消除 `710022002`。
+
+### 新增
+
+- 面板「设置 → Cookie 号出片方式」：Cookie 导入的 dola 号可以改走浏览器出片（和 Google 登录的号同一条路径，页面自己带设备标识）。默认仍是纯 API。没在面板存过时沿用 `DOLA_PURE_API`，启动不会为此起浏览器；这个环境没有驱动或 Chromium 内核时拒绝切过去，并写明原因。已导入、当时没建成浏览器资料的号，第一次走浏览器时按 `cookie_state.json` 现建，失败会关掉浏览器并删掉半成品。30 秒两段拼接仍只要纯 API。浏览器资料对导入的 Cookie 是否真能保持登录，**还没拿真实上游验证过**。
+
+### 文档
+
+- `docs/USAGE.md` 4.10、`docs/API.md` 的 `GET/PATCH /api/admin/settings/cookie-mode` 与 `DOLA_PURE_API`、`docs/COOKIE.md`。
+
 ## 2.9.10 — 2026-11-27
 
 ### 修复

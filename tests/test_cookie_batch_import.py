@@ -16,6 +16,11 @@ from test_async_compat import _run
 
 @pytest.fixture(autouse=True)
 def _stubs():
+    # 桩只在本文件的测试里生效。不还原的话，后面的测试再 import dola_pool.browser
+    # 会拿到这个没有真实函数的模块。
+    stubbed = ("dola_pool.video_worker_ui", "dola_pool.browser", "patchright", "patchright.async_api")
+    saved = {key: sys.modules.get(key) for key in stubbed}
+
     def _mod(name):
         return types.ModuleType(name)
 
@@ -59,7 +64,14 @@ def _stubs():
     pr_api.async_playwright = _async_playwright
     sys.modules["patchright"] = pr
     sys.modules["patchright.async_api"] = pr_api
-    yield
+    try:
+        yield
+    finally:
+        for key, previous in saved.items():
+            if previous is None:
+                sys.modules.pop(key, None)
+            else:
+                sys.modules[key] = previous
 
 
 def _make_pool(tmp_path):

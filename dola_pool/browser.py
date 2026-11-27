@@ -336,14 +336,56 @@ async def launch_account_context(p, account: str, headless: bool = None, use_ext
         proxy_kwargs = proxy_kwargs_for(account)
     if proxy_kwargs:
         kwargs["proxy"] = proxy_kwargs
+    # 浏览器模式的 cookie 号：导入时浏览器不可用就只落了 cookie_state.json。
+    # 第一次启动前 profile 还没有 Default/，按这份状态现建；之后 Chromium 自己维护。
+    # 必须在启动前判断：浏览器一启动就会自己创建 Default/。
+    fresh_cookie_profile = (
+        not snapshot.exists()
+        and (account_root / "cookie_state.json").is_file()
+        and not (profile_dir / "Default").exists()
+    )
     context = await p.chromium.launch_persistent_context(str(profile_dir), **kwargs)
-    if snapshot.exists():
-        try:
+    try:
+        if snapshot.exists():
             await _materialize_apple_session(context, snapshot)
-        except BaseException:
-            await context.close()
-            raise
+        elif fresh_cookie_profile:
+            # 浏览器模式的 cookie 号：导入时浏览器不可用就只落了 cookie_state.json。
+            # 第一次启动时按这份状态现建 profile，之后 Chromium 自己维护它。
+            await _materialize_cookie_profile(account, context)
+    except BaseException:
+        await context.close()
+        if fresh_cookie_profile:
+            # 建到一半的 profile 不能留：下次启动会把它当成已有 profile 而不再灌 cookie。
+            # 清理失败不能盖住原来的错误。
+            import shutil
+            try:
+                shutil.rmtree(profile_dir / "Default", ignore_errors=True)
+            except OSError:
+                pass
+        raise
     return context
+
+
+async def _materialize_cookie_profile(account: str, context) -> None:
+    """把 cookie_state.json 写进新建的浏览器 profile：cookie + 页面存储。
+
+    只在 profile 还没有 Default/ 时调用一次。失败时由调用方关掉浏览器并删掉建到
+    一半的 profile，下次启动重来，不留下半成品。
+    """
+    from dola_pool.cookie_login import _restore_web_storage, to_playwright_cookies
+
+    state = json.loads((Path("accounts") / account / "cookie_state.json").read_text(encoding="utf-8"))
+    raw = [c for c in (state.get("cookies_list") or []) if isinstance(c, dict) and _dola_cookie(c)]
+    if not raw:
+        raise RuntimeError(f"{account} 的 cookie_state.json 里没有 dola cookie，建不了浏览器 profile")
+    await context.add_cookies(to_playwright_cookies(raw))
+    storage = state.get("storage") if isinstance(state.get("storage"), dict) else {}
+    if storage:
+        page = context.pages[0] if context.pages else await context.new_page()
+        await page.goto("https://www.dola.com/chat", timeout=60000, wait_until="domcontentloaded")
+        result = await _restore_web_storage(page, storage)
+        if result.get("errors"):
+            raise RuntimeError("页面存储恢复失败: " + "; ".join(str(e) for e in result["errors"])[:300])
 
 
 async def _materialize_apple_session(context, snapshot: Path):

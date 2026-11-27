@@ -2,7 +2,7 @@
 
 # Cách lấy Cookie của tài khoản dola
 
-Tài khoản được nhập vào pool tài khoản bằng Cookie sẽ tạo video theo kiểu "API thuần": không mở trình duyệt, ổn định nhất, và **ghép nối hai đoạn 30 giây cũng chỉ dùng được loại tài khoản này**.
+Tài khoản được nhập vào pool bằng Cookie mặc định tạo video theo kiểu "API thuần": không mở trình duyệt, ổn định nhất, và **ghép nối hai đoạn 30 giây cũng chỉ dùng được loại tài khoản này**. Muốn mở trang thật như tài khoản đăng nhập Google, vào 「Cài đặt → Cách tạo video của tài khoản Cookie」 và chọn trình duyệt (mỗi tác vụ chiếm một trình duyệt, không ghép nối 30 giây được).
 Bài này hướng dẫn bạn xuất tài khoản dola đã đăng nhập trong trình duyệt thành Cookie, rồi dán vào trang quản trị.
 
 > ⚠️ Cookie chính là thông tin đăng nhập của tài khoản, ai có nó thì coi như đã đăng nhập vào tài khoản của bạn. **Không gửi vào nhóm chat, không chụp màn hình chia sẻ ra ngoài**.

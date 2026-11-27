@@ -866,6 +866,63 @@ def apply_anon_id_to_ctx(ctx: dict[str, str], data: dict[str, Any]) -> None:
         ctx["uid"] = uid
 
 
+def apply_launch_core_to_ctx(ctx: dict[str, str], data: dict[str, Any]) -> None:
+    """dola 页面的 device_id 就是 /alice/user/launch/core 返回的 core.web_id。
+
+    前端（samantha_web_web_id）把它存进 localStorage，请求公共参数里的 device_id
+    直接取这个值；它和 tea 缓存里的 web_id 不是同一个数。只补空位：已经从保存的
+    ctx 里恢复过的 device_id 不覆盖（一个号的设备号要保持稳定）。
+    """
+    if ctx.get("device_id"):
+        return
+    payload = data.get("data") if isinstance(data, dict) else None
+    core = payload.get("core") if isinstance(payload, dict) else None
+    web_id = str(core.get("web_id") or "") if isinstance(core, dict) else ""
+    if web_id and web_id != "0":
+        ctx["device_id"] = web_id
+
+
+_IDENTITY_CTX_KEYS = ("fp", "web_id", "tea_uuid", "device_id")
+
+
+def save_identity_ctx(state_path: str | Path, ctx: dict[str, str]) -> None:
+    """把设备标识原子写回 cookie_state.json 的 ctx，供轮询 / 重启后续跑复用。
+
+    只动 ctx 里的 fp / web_id / tea_uuid / device_id，登录态其余字段原样保留。
+    文件不存在或内容损坏时不动它（写坏了登录态就没了）。
+    """
+    path = Path(state_path)
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(state, dict):
+        return
+    saved = state.get("ctx") if isinstance(state.get("ctx"), dict) else {}
+    state["ctx"] = saved
+    saved.update({key: str(ctx[key]) for key in _IDENTITY_CTX_KEYS if ctx.get(key)})
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                     prefix=".cookie_state_", suffix=".tmp", delete=False) as handle:
+        temp = Path(handle.name)
+        try:
+            temp.chmod(0o600)
+            handle.write(json.dumps(state, ensure_ascii=False, indent=2))
+            handle.flush()
+            os.fsync(handle.fileno())
+        except BaseException:
+            handle.close()
+            temp.unlink(missing_ok=True)
+            raise
+    try:
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+
+
 def ctx_for_endpoint(ctx: dict[str, str], endpoint: str) -> dict[str, str]:
     """Live SPA leaves region/sys_region empty on get_web_anon_id."""
     if "get_web_anon_id" not in endpoint:
