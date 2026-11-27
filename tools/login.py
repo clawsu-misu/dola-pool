@@ -26,11 +26,13 @@ Cookie 就是账号的登录凭证：导出文件不要外传；工具不会把 
 import argparse
 import asyncio
 import getpass
+import ipaddress
 import json
 import os
 import re
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -80,16 +82,21 @@ def build_1024_proxy(user, password, gateway, *, region="JP", session=None, ttl=
     user, password, gateway = (user or "").strip(), password or "", (gateway or "").strip()
     if not (user and password and gateway):
         raise ToolError("1024Proxy 需要账号、密码和网关地址（host:port，在 1024 控制台「账密认证 → 去使用」查看）")
-    if not re.fullmatch(r"[A-Za-z]{2,6}", region or ""):
-        raise ToolError("1024Proxy 地区用字母代码，例如 JP、KR")
-    if not isinstance(ttl, int) or not 1 <= ttl <= 120:
-        raise ToolError("1024Proxy 粘性时长取 1-120 分钟")
-    session = session or secrets.token_hex(4)
-    if not re.fullmatch(r"[A-Za-z0-9]{1,32}", session):
-        raise ToolError("1024Proxy 会话 ID 只能用 1-32 位字母数字")
-    # 用户名格式只在 proxy_1024 里维护一份，面板的 1024Proxy 专用流程走同一个函数
-    login = proxy_1024.tunnel_username(
-        {"username": user, "provider_settings": {"region": region, "ttl": ttl}}, session)
+    # 控制台「去使用」给的是拼好的完整用户名。再套一层会变成
+    # …-t-10-region-JP-sid-…-t-10，网关直接断开。这种原样用，表单里的地区 / 会话 / 时长不再生效。
+    if re.fullmatch(r".+-region-[A-Za-z]{2,6}-sid-[A-Za-z0-9]{1,32}-t-(?:[1-9]\d?|1[01]\d|120)", user):
+        login = user
+    else:
+        if not re.fullmatch(r"[A-Za-z]{2,6}", region or ""):
+            raise ToolError("1024Proxy 地区用字母代码，例如 JP、KR")
+        if not isinstance(ttl, int) or not 1 <= ttl <= 120:
+            raise ToolError("1024Proxy 粘性时长取 1-120 分钟")
+        session = session or secrets.token_hex(4)
+        if not re.fullmatch(r"[A-Za-z0-9]{1,32}", session):
+            raise ToolError("1024Proxy 会话 ID 只能用 1-32 位字母数字")
+        # 用户名格式只在 proxy_1024 里维护一份，面板的 1024Proxy 专用流程走同一个函数
+        login = proxy_1024.tunnel_username(
+            {"username": user, "provider_settings": {"region": region, "ttl": ttl}}, session)
     return f"{protocol}://{quote(login, safe='')}:{quote(password, safe='')}@{gateway}"
 
 
@@ -113,7 +120,11 @@ def resolve_proxy(args, account, prompt=getpass.getpass):
         url = args.proxy
     else:
         return proxy_kwargs_for(account), proxy_store.account_proxy_url(account)
-    kwargs = _kwargs_from_url(url)
+    try:
+        kwargs = _kwargs_from_url(url)
+    except ValueError as exc:
+        from dola_pool.account_transport import redact_error
+        raise ToolError("代理地址无法解析：" + redact_error(exc)[:200]) from None
     if not kwargs:
         raise ToolError("代理地址无法解析（应为 host:port 或 协议://用户:密码@host:port）")
     return kwargs, url
@@ -130,14 +141,17 @@ def admin_password(raw, username, prompt=getpass.getpass):
 
 
 def describe_exit(proxy_url, log=print):
-    """登录前查一次出口归属地：dola 只认日本 / 韩国出口，先确认，免得白登一场。"""
+    """登录前查一次出口：连不上就停，不打开浏览器。dola 只认日本 / 韩国出口。"""
     if not proxy_url or proxy_url == "direct":
         log("代理出口：未配置代理，用本机网络直连（请自行确认出口在日本/韩国）")
         return
-    info = proxy_store.probe_exit_ip(proxy_url)
+    # requests 对 socks5:// 会在本机解析目标域名再把 IP 交给代理，dola 的 CDN 经常因此连不上。
+    # 探测走 socks5h（域名交给代理解析）。浏览器不认 socks5h，仍用原来的 socks5://。
+    probe_url = "socks5h://" + proxy_url[len("socks5://"):] if proxy_url.startswith("socks5://") else proxy_url
+    info = proxy_store.probe_exit_ip(probe_url)
     if not info.get("ok"):
-        log(f"代理出口探测失败（不影响登录，请确认代理可用）：{info.get('error', '')}")
-        return
+        reason = (info.get("error") or "未知原因").replace("\n", " ")
+        raise ToolError("代理不可用，已停止，不会打开浏览器：" + reason)
     where = " / ".join(x for x in (info.get("country"), info.get("region"), info.get("isp")) if x)
     log(f"代理出口：{info.get('ip')}  {where}")
     if info.get("country_code") not in SUPPORTED_REGIONS:
@@ -152,6 +166,9 @@ async def capture_login(account, proxy_kwargs, log=print):
     if proxy_kwargs:
         kwargs["proxy"] = proxy_kwargs
     async with async_playwright() as playwright:
+        binary = getattr(playwright.chromium, "executable_path", "")
+        if binary and not Path(binary).is_file():
+            raise ToolError("浏览器内核没装，已停止。先运行：python -m patchright install chromium")
         context = await playwright.chromium.launch_persistent_context(str(profile_dir), **kwargs)
         try:
             page = context.pages[0] if context.pages else await context.new_page()
@@ -353,9 +370,7 @@ class WebApp:
             self.log(f"✗ {exc}")
             self._set(status="error")
         except Exception as exc:
-            # 浏览器异常原文可能夹带代理密码，只打类型名
-            self.log(f"✗ 登录采集失败（{type(exc).__name__}）：确认代理可用，"
-                     "且已安装浏览器内核（python -m patchright install chromium）")
+            self.log(_public_failure(exc))
             self._set(status="error")
 
     def push(self, payload):
@@ -383,22 +398,107 @@ def _form_text(payload, key):
     return str(payload.get(key) or "").strip()
 
 
-def web_proxy_args(payload):
-    """网页表单 → resolve_proxy 认的参数对象（字段名与命令行选项一一对应）。"""
-    kind = _form_text(payload, "proxy_kind") or "local"
+def public_ip(timeout=8):
+    """查本机访问外网时的公网 IP。和提取接口走同一条网络，1024 白名单要加的就是它。"""
     try:
-        ttl = int(_form_text(payload, "p1024_ttl") or 120)
+        resp = requests.get("http://ip-api.com/json/?fields=status,query", timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json() or {}
+    except (requests.RequestException, ValueError) as exc:
+        from dola_pool.account_transport import redact_error
+        return {"ok": False, "ip": "", "error": "没查到本机公网 IP：" + redact_error(exc)[:160]}
+    ip = str(data.get("query") or "").strip()
+    try:
+        ipaddress.ip_address(ip)
     except ValueError:
-        raise ToolError("1024Proxy 粘性时长取 1-120 分钟") from None
-    on = kind == "p1024"
+        ip = ""
+    if data.get("status") != "success" or not ip:
+        return {"ok": False, "ip": "", "error": "没查到本机公网 IP"}
+    return {"ok": True, "ip": ip}
+
+
+def _public_failure(exc):
+    """异常原文可能夹带代理密码。脱敏后再给操作者看，别只甩「去装浏览器内核」。"""
+    from dola_pool.account_transport import redact_error
+    safe = " ".join(redact_error(exc).split())[:200]
+    return f"✗ 登录采集失败（{type(exc).__name__}）：{safe}"
+
+
+def _open_proxy_scheme(host, port, timeout=3):
+    """提取接口只给 host:port，协议得连上去认。
+
+    1024 白名单节点实测回 SOCKS5 无鉴权问候（\\x05\\x00）。按 HTTP 代理去连，对端直接断开，
+    requests 只报 RemoteDisconnected。问候不是 SOCKS5 就当 HTTP。
+    """
+    sock = socket.socket()
+    sock.settimeout(timeout)
+    try:
+        sock.connect((host, int(port)))
+        sock.sendall(b"\x05\x01\x00")
+        reply = sock.recv(2)
+    except OSError:
+        return "http"
+    finally:
+        sock.close()
+    if reply == b"\x05\x00":
+        return "socks5"
+    if reply[:1] == b"\x05":
+        raise ToolError("提取到的节点要求 SOCKS5 账号密码，API 链接没有提供，没法用")
+    return "http"
+
+
+def verbatim_proxy(user, password, gateway):
+    """1024 账密按控制台 curl 原样用：-x 是网关，-U 是 用户名:密码。不再拼接地区和会话。"""
+    user, password, gateway = (user or "").strip(), password or "", (gateway or "").strip()
+    if not (user and password and gateway):
+        raise ToolError("1024 账密要填网关、用户名和密码（控制台 curl 的 -x 和 -U，原样填写）")
+    if "://" in gateway or "/" in gateway:
+        raise ToolError("网关只填 host:port，例如 us.1024proxy.io:3000")
+    return f"http://{quote(user, safe='')}:{quote(password, safe='')}@{gateway}"
+
+
+def fetch_1024_api(url):
+    """调 1024 白名单提取链接，拿第一个 host:port。链接原样请求，不改地区和时长。"""
+    raw = (url or "").strip()
+    parts = urlsplit(raw)
+    if parts.scheme not in ("http", "https") or "1024proxy" not in (parts.hostname or "").lower():
+        raise ToolError("请粘贴 1024 控制台生成的 API 提取链接"
+                        "（https://white.1024proxy.com/white/api?region=JP&num=1&time=10&type=txt）")
+    try:
+        resp = requests.get(raw, timeout=HTTP_TIMEOUT)
+        resp.raise_for_status()
+        text = resp.text
+    except requests.RequestException as exc:
+        from dola_pool.account_transport import redact_error
+        raise ToolError("API 提取失败：" + redact_error(exc)[:200]) from None
+    nodes = proxy_store.parse_extract_lines(text)
+    if not nodes:
+        detail = " ".join(text.split())[:120] or "返回内容为空"
+        raise ToolError("API 没有返回可用地址：" + detail
+                        + "。请确认这台电脑的公网 IP 已加入 1024 白名单，且链接里 region 是 JP 或 KR")
+    node = nodes[0]
+    host = node["host"]
+    scheme = _open_proxy_scheme(host, node["port"])
+    shown = f"[{host}]" if ":" in host else host
+    auth = ""
+    if node.get("username"):
+        auth = quote(node["username"], safe="") + ":" + quote(node.get("password") or "", safe="") + "@"
+    return f"{scheme}://{auth}{shown}:{node['port']}"
+
+
+def web_proxy_args(payload):
+    """网页表单 → resolve_proxy 认的参数对象。1024 两种都不在这里重拼用户名。"""
+    kind = _form_text(payload, "proxy_kind") or "local"
+    if kind == "p1024":
+        proxy = verbatim_proxy(_form_text(payload, "p1024_user"), str(payload.get("p1024_pass") or ""),
+                               _form_text(payload, "p1024_gateway"))
+    elif kind == "p1024api":
+        proxy = fetch_1024_api(_form_text(payload, "p1024_api"))
+    else:
+        proxy = _form_text(payload, "proxy_url") if kind == "url" else None
     return SimpleNamespace(
-        proxy=_form_text(payload, "proxy_url") if kind == "url" else None,
-        p1024_user=_form_text(payload, "p1024_user") if on else None,
-        p1024_pass=str(payload.get("p1024_pass") or "") if on else None,
-        p1024_gateway=_form_text(payload, "p1024_gateway") if on else "",
-        p1024_region=_form_text(payload, "p1024_region") or "JP",
-        p1024_session=_form_text(payload, "p1024_session") or None,
-        p1024_ttl=ttl)
+        proxy=proxy, p1024_user=None, p1024_pass=None, p1024_gateway="",
+        p1024_region="JP", p1024_session=None, p1024_ttl=120)
 
 
 def serve(app, *, token, port=0):
@@ -430,8 +530,11 @@ def serve(app, *, token, port=0):
         def do_GET(self):
             if not self._authorized():
                 return self._reply(403, '{"ok": false, "error": "token 不正确：请用终端里打印的完整地址打开"}')
-            if urlsplit(self.path).path == "/api/status":
+            path = urlsplit(self.path).path
+            if path == "/api/status":
                 return self._reply(200, json.dumps(app.status(), ensure_ascii=False))
+            if path == "/api/ip":
+                return self._reply(200, json.dumps(public_ip(), ensure_ascii=False))
             return self._reply(200, page, "text/html; charset=utf-8")
 
         def do_POST(self):
@@ -527,8 +630,7 @@ def main(argv=None):
         return 130
     except Exception as exc:
         # 浏览器异常原文可能夹带代理密码，只打类型名
-        print(f"✗ 登录采集失败（{type(exc).__name__}）：确认代理可用，"
-              "且已安装浏览器内核（python -m patchright install chromium）")
+        print(_public_failure(exc))
         return 1
 
 

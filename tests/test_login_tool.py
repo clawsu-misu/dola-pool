@@ -31,6 +31,13 @@ def test_build_1024_proxy_uses_official_username_format():
                         login_tool.build_1024_proxy("acc1", "pw", "gw:1"))
 
 
+def test_build_1024_proxy_does_not_wrap_a_username_copied_from_the_console():
+    """控制台「去使用」给的是拼好的用户名。再套一层网关会直接断开。"""
+    full = "acct9-region-JP-sid-abCD1234-t-10"
+    url = login_tool.build_1024_proxy(full, "pw", "us.example.com:3000", region="KR", session="ffff", ttl=120)
+    assert url == "http://" + full + ":pw@us.example.com:3000"
+
+
 @pytest.mark.parametrize("options", [
     {"gateway": ""}, {"region": "1"}, {"ttl": 0}, {"ttl": 121}, {"ttl": "30"},
     {"session": "a b"},
@@ -250,6 +257,21 @@ def test_capture_login_times_out_when_nobody_logs_in(tmp_path, monkeypatch):
     assert closed == [True]
 
 
+def test_capture_login_stops_when_the_browser_binary_is_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    class Playwright:
+        async def __aenter__(self):
+            return SimpleNamespace(chromium=SimpleNamespace(executable_path=str(tmp_path / "no-such-chrome")))
+
+        async def __aexit__(self, *args):
+            pass
+
+    monkeypatch.setattr(login_tool, "async_playwright", Playwright)
+    with pytest.raises(login_tool.ToolError, match="浏览器内核没装"):
+        _run(login_tool.capture_login("acc1", None))
+
+
 def test_capture_login_treats_a_closed_window_as_cancel(tmp_path, monkeypatch, capsys):
     """网页界面没有 Ctrl+C：关掉登录窗口就是取消，要说人话而不是甩一屏 Playwright 异常。"""
     monkeypatch.chdir(tmp_path)
@@ -297,6 +319,20 @@ def test_main_builds_1024proxy_tunnel(tmp_path, monkeypatch):
                             "--no-clipboard"]) == 0
     assert seen["proxy"] == {"server": "http://gw:10000",
                              "username": "acc1-region-JP-sid-ab12cd34-t-120", "password": "pw"}
+
+
+def test_unreachable_proxy_stops_before_the_browser_opens(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(login_tool.proxy_store, "probe_exit_ip", lambda url, timeout=15: {
+        "ok": False, "ip": "", "error": "Remote end closed connection"})
+
+    async def capture(*args, **kwargs):
+        pytest.fail("探测失败不应打开浏览器")
+
+    monkeypatch.setattr(login_tool, "capture_login", capture)
+    with pytest.raises(login_tool.ToolError, match="不会打开浏览器") as caught:
+        _run(login_tool.login_and_export("acc1", {"server": "http://gw:1", "username": "u"}, "http://u:p@gw:1"))
+    assert "Remote end closed connection" in str(caught.value)
 
 
 def test_main_warns_when_exit_is_outside_supported_regions(tmp_path, monkeypatch, capsys):
@@ -377,6 +413,7 @@ def test_web_page_and_api_only_answer_the_url_token(web):
     assert json.loads(web.call("GET", "/api/status")[1])["status"] == "idle"    # 被拒的请求没启动任务
     code, page = web.call("GET", "/?token=tok-9", token="")
     assert code == 200 and b'id="loginForm"' in page and b'id="pushForm"' in page
+    assert b'id="ipText"' in page and b'id="ipCopy"' in page
 
 
 def test_web_login_job_exports_and_never_hands_cookies_to_the_page(web):
@@ -469,18 +506,206 @@ def test_web_reports_failures_in_the_log_instead_of_hanging(web):
     assert any("账号名" in line for line in wait_finished(web)["lines"])
 
 
-def test_web_builds_1024proxy_tunnel_and_never_prompts_for_a_password(web, monkeypatch):
+def test_web_uses_1024_credentials_verbatim(web, monkeypatch):
+    """网页上的 1024 账密按控制台 curl 原样用，不再拼 -region-。"""
     monkeypatch.delenv("DOLA_P1024_PASS", raising=False)
     monkeypatch.setattr(login_tool.getpass, "getpass", lambda *a: pytest.fail("网页模式没有终端可交互"))
-    form = {"account": "acc1", "proxy_kind": "p1024", "p1024_user": "acc1", "p1024_gateway": "gw:10000",
-            "p1024_session": "ab12cd34", "p1024_ttl": "90"}
+    user = "acct9-region-JP-sid-abCD1234-t-5"
+    form = {"account": "acc1", "proxy_kind": "p1024", "p1024_user": user, "p1024_gateway": "us.example.com:3000"}
     assert web.call("POST", "/api/start", form)[0] == 200            # 没填密码
-    assert any("1024Proxy 密码" in line for line in wait_finished(web)["lines"])
+    assert any("网关、用户名和密码" in line for line in wait_finished(web)["lines"])
     assert web.call("POST", "/api/start", dict(form, p1024_pass="hunter2-1024-pw"))[0] == 200
     state = wait_finished(web)
     assert state["status"] == "done"
-    assert any("账号 acc1-region-JP-sid-ab12cd34-t-90）" in line for line in state["lines"])
+    assert any(f"账号 {user}）" in line for line in state["lines"])
+    assert "region-JP-sid-abCD1234-t-5-region" not in json.dumps(state)
     assert "hunter2-1024-pw" not in json.dumps(state)
+
+
+def _accept_loop(handler):
+    """在 127.0.0.1 上接连接，每个连接丢给 handler。返回 (socket, port)。"""
+    import socket
+    import threading
+
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    srv.settimeout(0.2)
+
+    def run():
+        while True:
+            try:
+                conn, _ = srv.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            threading.Thread(target=handler, args=(conn,), daemon=True).start()
+
+    threading.Thread(target=run, daemon=True).start()
+    return srv, srv.getsockname()[1]
+
+
+def _read_until(conn, marker, limit=8192):
+    buf = b""
+    while marker not in buf and len(buf) < limit:
+        chunk = conn.recv(1024)
+        if not chunk:
+            break
+        buf += chunk
+    return buf
+
+
+def _http_ok(body):
+    return (b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n"
+            b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+
+
+_EXIT_JSON = (b'{"status":"success","country":"Japan","countryCode":"JP",'
+              b'"regionName":"Tokyo","isp":"test","query":"203.0.113.10"}')
+
+
+def _serve_socks5(body):
+    """无鉴权 SOCKS5：问候回 \\x05\\x00，CONNECT 成功后回固定 HTTP。"""
+    import socket
+
+    def handle(conn):
+        try:
+            conn.settimeout(5)
+            greet = conn.recv(3)
+            if greet != b"\x05\x01\x00":
+                return
+            conn.sendall(b"\x05\x00")
+            head = conn.recv(4)
+            if len(head) < 4:
+                return          # 认协议的那次连接发完问候就关
+            atyp = head[3]
+            if atyp == 1:
+                need = 6
+            elif atyp == 3:
+                n = conn.recv(1)
+                need = (n[0] if n else 0) + 2
+            elif atyp == 4:
+                need = 18
+            else:
+                return
+            got = b""
+            while len(got) < need:
+                chunk = conn.recv(need - len(got))
+                if not chunk:
+                    return
+                got += chunk
+            conn.sendall(b"\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00")
+            _read_until(conn, b"\r\n\r\n")
+            conn.sendall(_http_ok(body))
+        except OSError:
+            return
+        finally:
+            conn.close()
+
+    return _accept_loop(handle)
+
+
+def _serve_http_proxy(body):
+    """HTTP 代理。SOCKS 问候不认（回两个字节），HTTP 请求回固定内容。"""
+
+    def handle(conn):
+        try:
+            conn.settimeout(5)
+            first = conn.recv(1)
+            if first == b"\x05":
+                conn.sendall(b"NO")
+                return
+            _read_until(conn, b"\r\n\r\n")
+            conn.sendall(_http_ok(body))
+        except OSError:
+            return
+        finally:
+            conn.close()
+
+    return _accept_loop(handle)
+
+
+def test_api_extract_speaks_the_protocol_the_node_actually_uses(monkeypatch):
+    """不桩探测：本地 SOCKS5 / HTTP 代理各起一个，认协议并真的打通出口查询。"""
+    socks, socks_port = _serve_socks5(_EXIT_JSON)
+    http, http_port = _serve_http_proxy(_EXIT_JSON)
+    api = "https://white.1024proxy.com/white/api?region=JP&num=1&type=txt"
+
+    real_get = login_tool.requests.get
+
+    def get(url, timeout=20, **kwargs):
+        # 提取链接是桩；探测出口必须走真的 requests，经本地代理打出去
+        if "proxies" in kwargs:
+            return real_get(url, timeout=timeout, **kwargs)
+        return SimpleNamespace(status_code=200, text=calls["text"], raise_for_status=lambda: None)
+
+    calls = {"text": f"127.0.0.1:{socks_port}"}
+    monkeypatch.setattr(login_tool.requests, "get", get)
+    try:
+        url = login_tool.fetch_1024_api(api)
+        assert url == f"socks5://127.0.0.1:{socks_port}"
+        assert login_tool._kwargs_from_url(url) == {"server": url}
+        lines = []
+        login_tool.describe_exit(url, log=lines.append)
+        assert any("203.0.113.10" in line and "Japan" in line for line in lines)
+
+        calls["text"] = f"127.0.0.1:{http_port}"
+        url = login_tool.fetch_1024_api(api)
+        assert url == f"http://127.0.0.1:{http_port}"
+        lines = []
+        login_tool.describe_exit(url, log=lines.append)
+        assert any("203.0.113.10" in line for line in lines)
+    finally:
+        socks.close()
+        http.close()
+
+
+def test_public_ip_is_the_direct_address_for_the_whitelist(monkeypatch):
+    """白名单要的是本机直连 IP，解析失败不能把一段说明文字当成地址。"""
+    def get(url, timeout=8):
+        assert url.startswith("http://ip-api.com/json/")
+        return SimpleNamespace(status_code=200, raise_for_status=lambda: None,
+                               json=lambda: {"status": "success", "query": "203.0.113.9"})
+
+    monkeypatch.setattr(login_tool.requests, "get", get)
+    assert login_tool.public_ip() == {"ok": True, "ip": "203.0.113.9"}
+    monkeypatch.setattr(login_tool.requests, "get", lambda url, timeout=8: SimpleNamespace(
+        status_code=200, raise_for_status=lambda: None, json=lambda: {"status": "success", "query": "not-an-ip"}))
+    assert login_tool.public_ip()["ok"] is False and login_tool.public_ip()["ip"] == ""
+
+
+def test_web_ip_endpoint_is_token_gated(web, monkeypatch):
+    monkeypatch.setattr(login_tool, "public_ip", lambda timeout=8: {"ok": True, "ip": "203.0.113.9"})
+    assert web.call("GET", "/api/ip", token="")[0] == 403
+    code, body = web.call("GET", "/api/ip")
+    assert code == 200 and json.loads(body) == {"ok": True, "ip": "203.0.113.9"}
+
+
+def test_web_fetches_one_address_from_the_1024_api(web, monkeypatch):
+    seen = {}
+    stub_run(monkeypatch, seen)
+
+    def get(url, timeout=20):
+        assert url.startswith("https://white.1024proxy.com/white/api")
+        return SimpleNamespace(status_code=200, text='[{"host":"165.1.2.3","port":"7098"}]',
+                               raise_for_status=lambda: None)
+
+    monkeypatch.setattr(login_tool.requests, "get", get)
+    monkeypatch.setattr(login_tool, "_open_proxy_scheme", lambda host, port, timeout=3: "http")
+    form = {"account": "acc1", "proxy_kind": "p1024api",
+            "p1024_api": "https://white.1024proxy.com/white/api?region=JP&num=1&time=10&type=json"}
+    assert web.call("POST", "/api/start", form)[0] == 200
+    assert wait_finished(web)["status"] == "done"
+    assert seen["proxy"] == {"server": "http://165.1.2.3:7098"}
+    assert web.call("POST", "/api/start", dict(form, p1024_api="https://evil.example/api"))[0] == 200
+    assert any("API 提取链接" in line for line in wait_finished(web)["lines"])
+    monkeypatch.setattr(login_tool.requests, "get",
+                        lambda url, timeout=20: SimpleNamespace(status_code=200, text="IP not in whitelist",
+                                                                raise_for_status=lambda: None))
+    assert web.call("POST", "/api/start", form)[0] == 200
+    assert any("白名单" in line for line in wait_finished(web)["lines"])
 
 
 def test_web_push_needs_the_admin_password_in_the_form(web, monkeypatch):
@@ -502,14 +727,12 @@ def test_web_reports_a_browser_crash_without_leaking_proxy_secrets(web, monkeypa
     assert web.call("POST", "/api/start", payload)[0] == 200
     state = wait_finished(web)
     assert state["status"] == "error"
+    blob = json.dumps(state)
     assert any("登录采集失败（RuntimeError）" in line for line in state["lines"])
-    assert "hunter2-proxy-pw" not in json.dumps(state) and "launch failed" not in json.dumps(state)
+    assert "hunter2-proxy-pw" not in blob and "password=[REDACTED]" in blob
 
 
-def test_web_rejects_bad_ttl_usernames_and_requests(web):
-    form = {"account": "acc1", "proxy_kind": "p1024", "p1024_user": "u", "p1024_pass": "p", "p1024_gateway": "gw:1"}
-    assert web.call("POST", "/api/start", dict(form, p1024_ttl="abc"))[0] == 200
-    assert any("粘性时长" in line for line in wait_finished(web)["lines"])
+def test_web_rejects_bad_usernames_and_requests(web):
     assert web.call("POST", "/api/start", START)[0] == 200
     wait_finished(web)
     code, body = web.call("POST", "/api/push", {"server": "srv.example.com"})          # 没填管理员用户名
@@ -568,14 +791,13 @@ const el = (selector, init = {}) => {
   }
   return nodes[selector];
 };
-const radios = ['p1024', 'url', 'local'].map(kind => el('radio:' + kind, {value: kind}));
+const radios = ['p1024', 'p1024api', 'url', 'local'].map(kind => el('radio:' + kind, {value: kind}));
 radios[0].checked = true;
 Object.assign(el('#f_account'), {value: ' acc1 '});
 Object.assign(el('#f_user'), {value: 'u1'});
 Object.assign(el('#f_pass'), {value: 'pw-1024'});
 Object.assign(el('#f_gateway'), {value: 'gw:10000'});
-Object.assign(el('#f_region'), {value: 'JP'});
-Object.assign(el('#f_ttl'), {value: '120'});
+Object.assign(el('#f_api'), {value: ''});
 Object.assign(el('#s_server'), {value: 'srv.example.com'});
 Object.assign(el('#s_user'), {value: 'admin'});
 Object.assign(el('#s_pass'), {value: 'pw-admin'});
@@ -585,9 +807,12 @@ globalThis.document = {
   querySelectorAll: () => radios,
 };
 globalThis.location = {search: '?token=tok-9'};
+globalThis.copiedIp = '';
+navigator.clipboard = {writeText: async text => { globalThis.copiedIp = text; }};
 const calls = [];
 const queue = {
   '/api/status': [{status: 200, body: {status: 'idle', lines: []}}],
+  '/api/ip': [{status: 200, body: {ok: true, ip: '203.0.113.8'}}],
   '/api/start': [{status: 200, body: {ok: true}}],
   '/api/push': [{status: 200, body: {ok: true, message: '已导入，服务器在线验证通过'}}],
 };
@@ -607,10 +832,22 @@ PAGE_CHECKS = r'''
   await tick(); await tick();
   assert.deepEqual(calls.splice(0), [{path: '/api/status', method: 'GET', headers: {'X-Token': 'tok-9'}}]);
   radios[1].checked = true; radios[0].checked = false; radios[1].handlers.change();
-  assert.deepEqual([el('#box_p1024').hidden, el('#box_url').hidden, el('#local_hint').hidden], [true, false, true]);
+  await tick(); await tick();
+  assert.deepEqual([el('#box_p1024').hidden, el('#box_p1024api').hidden, el('#box_url').hidden, el('#local_hint').hidden],
+                   [true, false, true, true]);
+  assert.deepEqual(calls.splice(0), [{path: '/api/ip', method: 'GET', headers: {'X-Token': 'tok-9'}}]);
+  assert.equal(el('#ipText').textContent, '203.0.113.8');
+  assert.equal(el('#ipCopy').disabled, false);
+  await el('#ipCopy').handlers.click();
+  await tick();
+  assert.equal(globalThis.copiedIp, '203.0.113.8');
+  assert.equal(el('#ipCopy').textContent, '已复制');
   radios[2].checked = true; radios[1].checked = false; radios[2].handlers.change();
+  assert.deepEqual([el('#box_p1024').hidden, el('#box_p1024api').hidden, el('#box_url').hidden, el('#local_hint').hidden],
+                   [true, true, false, true]);
+  radios[3].checked = true; radios[2].checked = false; radios[3].handlers.change();
   assert.deepEqual([el('#box_p1024').hidden, el('#box_url').hidden, el('#local_hint').hidden], [true, true, false]);
-  radios[0].checked = true; radios[2].checked = false; radios[0].handlers.change();
+  radios[0].checked = true; radios[3].checked = false; radios[0].handlers.change();
   assert.equal(el('#box_p1024').hidden, false);
 
   // 账号名没填：页面自己拦下，不发请求
@@ -630,8 +867,7 @@ PAGE_CHECKS = r'''
   assert.deepEqual(calls.splice(0), [
     {path: '/api/start', method: 'POST', headers: {'X-Token': 'tok-9', 'Content-Type': 'application/json'}, body: {
       account: 'acc1', proxy_kind: 'p1024', fresh: false, proxy_url: '',
-      p1024_user: 'u1', p1024_pass: 'pw-1024', p1024_gateway: 'gw:10000', p1024_region: 'JP',
-      p1024_session: '', p1024_ttl: '120'}},
+      p1024_user: 'u1', p1024_pass: 'pw-1024', p1024_gateway: 'gw:10000', p1024_api: ''}},
     {path: '/api/status', method: 'GET', headers: {'X-Token': 'tok-9'}},
   ]);
   assert.equal(el('#startBtn').disabled, true);
