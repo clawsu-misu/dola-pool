@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from test_async_compat import _run
+
 
 @pytest.fixture(autouse=True)
 def _stubs():
@@ -169,7 +171,7 @@ def test_import_keeps_page_storage_from_a_full_login_bundle(tmp_path, monkeypatc
 
     bundle = {"cookies": [{"name": "sessionid", "value": "sid-full", "domain": ".dola.com", "path": "/"}],
               "localStorage": {"__tea_cache_tokens_495671": '{"web_id":"42"}'}}
-    result = asyncio.run(
+    result = _run(
         cookie_login.import_cookie_account("acc9", bundle, require_login=False))
     state = json.loads(Path(result["cookie_state_file"]).read_text(encoding="utf-8"))
     assert state["storage"]["localStorage"]["__tea_cache_tokens_495671"] == '{"web_id":"42"}'
