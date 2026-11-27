@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dola 本地登录 · 导出 / 推送</title>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --text:#1f2329; --muted:#6b7280; --line:#dfe1e6; --accent:#2563eb;
+          --ok:#0f7b45; --ok-bg:#e7f6ee; --bad:#c0392b; --bad-bg:#fdeceb; --warn:#8a5300; --warn-bg:#fff4e0; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:28px 16px 48px; background:var(--bg); color:var(--text);
+         font:14px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  main { max-width:720px; margin:0 auto; display:grid; gap:16px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px 22px; }
+  h1 { margin:0; font-size:19px; }
+  h2 { margin:0 0 4px; font-size:16px; }
+  p { margin:6px 0; }
+  .hint { color:var(--muted); font-size:13px; }
+  label { display:block; margin:10px 0 4px; font-size:13px; }
+  input:not([type=checkbox]):not([type=radio]) { width:100%; padding:8px 10px; border:1px solid var(--line);
+          border-radius:8px; font:inherit; background:#fff; color:inherit; }
+  input:focus { outline:2px solid var(--accent); outline-offset:-1px; border-color:var(--accent); }
+  .row { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:0 14px; }
+  .radios { display:flex; flex-wrap:wrap; gap:6px 20px; margin:4px 0 8px; }
+  .radios label { display:inline-flex; align-items:center; gap:6px; margin:0; }
+  .check { display:flex; align-items:center; gap:6px; }
+  button { padding:9px 20px; border-radius:8px; border:1px solid var(--accent); background:var(--accent);
+           color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.55; cursor:default; }
+  #log { margin:14px 0 0; padding:12px 14px; max-height:280px; overflow:auto; border-radius:10px;
+         background:#111821; color:#d5dce6; font:12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+         white-space:pre-wrap; word-break:break-all; }
+  #log:empty { display:none; }
+  .banner { display:none; margin-top:12px; padding:10px 12px; border-radius:10px; word-break:break-all; }
+  .banner.ok { display:block; color:var(--ok); background:var(--ok-bg); }
+  .banner.bad { display:block; color:var(--bad); background:var(--bad-bg); }
+  .banner.warn { display:block; color:var(--warn); background:var(--warn-bg); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <section>
+    <h1>Dola 本地登录 · 导出 Cookie</h1>
+    <p class="hint">点「开始登录」后这台电脑会弹出一个浏览器窗口，<b>你在里面手动登录</b>（Google / Apple / 手机号都行，滑块手拖）。登进去之后工具自动导出 Cookie 并复制到剪贴板。</p>
+    <form id="loginForm">
+      <label for="f_account">账号名</label>
+      <input id="f_account" placeholder="例如 acc1，与服务器上的号同名" autocomplete="off" spellcheck="false">
+      <p class="hint">登录用的代理（出口必须是日本 / 韩国）</p>
+      <div class="radios">
+        <label><input type="radio" name="proxy" value="p1024" checked> 1024Proxy 账密隧道</label>
+        <label><input type="radio" name="proxy" value="url"> 自定义代理地址</label>
+        <label><input type="radio" name="proxy" value="local"> 用本机号池里绑定的</label>
+      </div>
+      <div id="box_p1024">
+        <div class="row">
+          <div><label for="f_user">1024Proxy 账号</label><input id="f_user" autocomplete="off"></div>
+          <div><label for="f_pass">密码</label><input id="f_pass" type="password" autocomplete="new-password"></div>
+        </div>
+        <div class="row">
+          <div><label for="f_gateway">网关 host:port</label><input id="f_gateway" placeholder="1024 控制台「账密认证 → 去使用」里查看" autocomplete="off"></div>
+          <div><label for="f_region">出口地区</label><input id="f_region" value="JP" autocomplete="off"></div>
+        </div>
+        <div class="row">
+          <div><label for="f_session">会话 ID（可空，空 = 随机）</label><input id="f_session" autocomplete="off"></div>
+          <div><label for="f_ttl">粘性时长（分钟，1-120）</label><input id="f_ttl" value="120" inputmode="numeric" autocomplete="off"></div>
+        </div>
+      </div>
+      <div id="box_url" hidden>
+        <label for="f_proxy_url">代理地址</label>
+        <input id="f_proxy_url" placeholder="http://用户:密码@主机:端口" autocomplete="off" spellcheck="false">
+      </div>
+      <p class="hint" id="local_hint" hidden>用本机号池里给这个账号名绑定的代理；没绑定就直连。</p>
+      <p><label class="check"><input type="checkbox" id="f_fresh"> 从零登录（清掉本机旧 profile；会话过期要续期时勾上）</label></p>
+      <p><button id="startBtn" type="submit">开始登录</button></p>
+    </form>
+    <pre id="log"></pre>
+    <div id="loginBanner" class="banner"></div>
+  </section>
+
+  <section id="pushBox" hidden>
+    <h2>推送到服务器</h2>
+    <p class="hint">用服务器面板的管理员账号导入刚导出的这个号，工具会等服务器导入和在线验证结束。不想直推：到服务器面板「＋ 批量添加 → Cookie 头文本」粘贴剪贴板里的内容。</p>
+    <form id="pushForm">
+      <div class="row">
+        <div><label for="s_server">服务器面板地址</label><input id="s_server" placeholder="https://dola.example.com" autocomplete="off" spellcheck="false"></div>
+        <div><label for="s_user">管理员用户名</label><input id="s_user" autocomplete="username"></div>
+      </div>
+      <div class="row">
+        <div><label for="s_pass">管理员密码</label><input id="s_pass" type="password" autocomplete="current-password"></div>
+        <div><label for="s_proxy_id">服务器上的代理 ID（可空）</label><input id="s_proxy_id" placeholder="导入后给这个号绑定" autocomplete="off"></div>
+      </div>
+      <p><label class="check"><input type="checkbox" id="s_skip"> 跳过在线验证</label></p>
+      <p><button id="pushBtn" type="submit">推送</button></p>
+    </form>
+    <div id="pushBanner" class="banner"></div>
+  </section>
+</main>
+<script>
+const q = selector => document.querySelector(selector);
+const TOKEN = new URLSearchParams(location.search).get('token') || '';
+let timer = null;
+
+async function request(path, body) {
+  const init = {method: 'GET', headers: {'X-Token': TOKEN}};
+  if (body !== undefined) {
+    init.method = 'POST';
+    init.headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, init);
+  let data = {};
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error(data.error || ('本地服务返回 ' + res.status));
+  return data;
+}
+
+function banner(selector, kind, text) {
+  const box = q(selector);
+  box.className = kind ? 'banner ' + kind : 'banner';
+  box.textContent = text || '';
+}
+
+function render(state) {
+  q('#log').textContent = (state.lines || []).join('\n');
+  q('#log').scrollTop = q('#log').scrollHeight;
+  const running = state.status === 'running';
+  q('#startBtn').disabled = running;
+  q('#startBtn').textContent = running ? '登录进行中…' : '开始登录';
+  q('#pushBox').hidden = state.status !== 'done';
+  if (running) {
+    banner('#loginBanner', 'warn', '浏览器窗口已打开：请在里面手动登录（任意方式）。检测到登录后这里会自动更新；关掉窗口即取消。');
+    banner('#pushBanner', '', '');                                  // 上一个号的推送结果不留到下一个号
+  }
+  else if (state.status === 'done') banner('#loginBanner', 'ok', '已导出 ' + state.exported + ' 条 Cookie' + (state.clipboard ? '，并复制到剪贴板' : '') + '：' + state.export_path);
+  else if (state.status === 'error') banner('#loginBanner', 'bad', '登录没有完成，原因见上方日志的最后一条。修正后重新点「开始登录」。');
+  else banner('#loginBanner', '', '');
+  return running;
+}
+
+async function poll() {
+  return render(await request('/api/status'));
+}
+
+async function loop() {
+  try { if (await poll()) timer = setTimeout(loop, 1000); }
+  catch (err) { banner('#loginBanner', 'bad', err.message); }
+}
+
+q('#loginForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const kind = document.querySelector('input[name=proxy]:checked').value;
+  const val = selector => q(selector).value.trim();
+  const body = {
+    account: val('#f_account'), proxy_kind: kind, fresh: q('#f_fresh').checked,
+    proxy_url: val('#f_proxy_url'),
+    p1024_user: val('#f_user'), p1024_pass: q('#f_pass').value, p1024_gateway: val('#f_gateway'),
+    p1024_region: val('#f_region'), p1024_session: val('#f_session'), p1024_ttl: val('#f_ttl'),
+  };
+  if (!body.account) return banner('#loginBanner', 'bad', '请先填账号名');
+  if (kind === 'p1024' && !(body.p1024_user && body.p1024_gateway)) return banner('#loginBanner', 'bad', '1024Proxy 要填账号和网关地址');
+  if (kind === 'url' && !body.proxy_url) return banner('#loginBanner', 'bad', '请填代理地址');
+  try { await request('/api/start', body); loop(); }
+  catch (err) { banner('#loginBanner', 'bad', err.message); }
+});
+
+q('#pushForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const pass = q('#s_pass');
+  const body = {server: q('#s_server').value.trim(), user: q('#s_user').value.trim(), pass: pass.value,
+                proxy_id: q('#s_proxy_id').value.trim(), skip_verify: q('#s_skip').checked};
+  const btn = q('#pushBtn');
+  btn.disabled = true;
+  banner('#pushBanner', 'warn', '正在推送，等服务器导入和在线验证结束…');
+  try {
+    const data = await request('/api/push', body);
+    pass.value = '';
+    banner('#pushBanner', 'ok', '✓ ' + data.message);
+  } catch (err) {
+    banner('#pushBanner', 'bad', err.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+for (const radio of document.querySelectorAll('input[name=proxy]')) {
+  radio.addEventListener('change', () => {
+    const kind = document.querySelector('input[name=proxy]:checked').value;
+    q('#box_p1024').hidden = kind !== 'p1024';
+    q('#box_url').hidden = kind !== 'url';
+    q('#local_hint').hidden = kind !== 'local';
+  });
+}
+
+loop();
+</script>
+</body>
+</html>

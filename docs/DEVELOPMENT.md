@@ -89,7 +89,9 @@
 
 ### 4.4 登录态采集（沿用）
 
-- `tools/login.py <账号名>`：headful 手动登录（任意方式），检测 sessionid 后存 profile 到 `accounts/<名>/`，并把 Cookie 导出成
+- `tools/login.py --web`：本地网页界面（`tools/login_web.html`，只监听 127.0.0.1 + URL token）——填表单点按钮完成
+  「登录 → 导出 → 推送」，页面轮询 `/api/status`，Cookie 值不进页面。`tools/login.py <账号名>` 是等价的命令行。
+  都是 headful 手动登录（任意方式），检测 sessionid 后存 profile 到 `accounts/<名>/`，并把 Cookie 导出成
   `accounts/<名>/cookies-export.json` + 复制到剪贴板；`--p1024-*` 走 1024Proxy 账密隧道，`--server` 直推服务器（用法见 COOKIE.md 方法 3）。
 - `tools/verify_login.py`：无头验证登录态。
 - 已有 profile：`accounts/acc1/`。
