@@ -1728,6 +1728,12 @@ class BrowserPool:
             name, reason=reason, force=force)
         if not new_session:
             info = proxy_store.get_account_proxy(name)
+            if info and info.get("mode") == "extract":
+                # 刚才调过提取接口并失败时，把接口的原因带出来（没配白名单、余额不足等）
+                last_error = (info.get("extract_last_error") or "").strip()
+                return {"ok": False, "account": name, "rotated": False,
+                        "reason": f"提取不到新节点：{last_error}" if last_error
+                        else "节点池没有可切换的空闲节点（提取链接受限流时请稍后再试，或增大提取数量）"}
             if info and info.get("mode") == "dynamic":
                 return {"ok": False, "account": name, "rotated": False,
                         "reason": "距上次轮换不足最小间隔"}
@@ -1908,6 +1914,8 @@ class BrowserPool:
         """面板「换IP」：绑定在这条代理上的号全部换出口。
 
         绑定关系以 proxy_store 为准：list_accounts() 的行里没有 proxy_id。
+        skipped 带上每个号没换成的原因，面板直接展示，不用再猜
+        （节点池空了、提取接口报错、距上次轮换太近等）。
         """
         rotated, skipped = [], []
         for acc in self.list_accounts():
@@ -1915,7 +1923,11 @@ class BrowserPool:
             if not info or info.get("id") != proxy_id:
                 continue
             result = self.rotate_account_ip(acc["name"], force=True)
-            (rotated if result.get("rotated") else skipped).append(acc["name"])
+            if result.get("rotated"):
+                rotated.append(acc["name"])
+            else:
+                skipped.append({"account": acc["name"],
+                                "reason": result.get("reason") or "轮换失败"})
         return {"rotated": rotated, "skipped": skipped}
 
     def _on_egress_unhealthy(self, egress: str, reason: str) -> None:

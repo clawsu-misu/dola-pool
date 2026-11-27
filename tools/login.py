@@ -45,7 +45,7 @@ import requests
 from patchright.async_api import async_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from dola_pool import proxy_store
+from dola_pool import proxy_1024, proxy_store
 from dola_pool.browser import (LAUNCH_ARGS, _dola_cookie, _kwargs_from_url, _save_cloak_cookies,
                                proxy_kwargs_for)
 
@@ -75,7 +75,7 @@ def build_1024_proxy(user, password, gateway, *, region="JP", session=None, ttl=
     """1024Proxy 账密隧道：按官方用户名格式拼代理 URL。
 
     <账号>-region-<地区>-sid-<会话>-t-<粘性分钟>:<密码>@<网关 host:port>
-    默认值与面板「添加代理 → 1024Proxy 预设」一致（出口日本、粘性 120 分钟）。
+    默认值与面板「添加代理 → 1024Proxy」专用页签一致（出口日本、粘性 120 分钟）。
     """
     user, password, gateway = (user or "").strip(), password or "", (gateway or "").strip()
     if not (user and password and gateway):
@@ -87,8 +87,9 @@ def build_1024_proxy(user, password, gateway, *, region="JP", session=None, ttl=
     session = session or secrets.token_hex(4)
     if not re.fullmatch(r"[A-Za-z0-9]{1,32}", session):
         raise ToolError("1024Proxy 会话 ID 只能用 1-32 位字母数字")
-    template = f"{{user}}-region-{region}-sid-{{session}}-t-{ttl}"
-    login = proxy_store.render_session_username(template, user, session)
+    # 用户名格式只在 proxy_1024 里维护一份，面板的 1024Proxy 专用流程走同一个函数
+    login = proxy_1024.tunnel_username(
+        {"username": user, "provider_settings": {"region": region, "ttl": ttl}}, session)
     return f"{protocol}://{quote(login, safe='')}:{quote(password, safe='')}@{gateway}"
 
 

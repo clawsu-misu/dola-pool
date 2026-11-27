@@ -3310,25 +3310,6 @@ function onProxyKindChange(){
   const tu=q('#tunnelBox');
   if(tu)tu.style.display=(m==='extract'&&kind==='tunnel')?'block':'none';
 }
-/** 1024Proxy 预设（官方账密格式：用户名后接 -region-国家-sid-会话ID-t-粘性分钟，粘性 1-120 分钟）：
-    账密隧道 → 填会话模板和有效期（默认粘性 5 分钟，固定地区在 -sid- 前插 -region-XX-）；
-    API 提取 → 控制台生成 txt 链接（一行一个 host:port:user:pass），按调用计费，间隔默认 60 秒。 */
-function preset1024(kind){
-  q('#f_pmode').value='extract';onProxyModeChange();
-  const radio=q(`input[name=f_pkind][value=${kind}]`);if(radio)radio.checked=true;
-  onProxyKindChange();
-  if(kind==='tunnel'){
-    const tpl=q('#f_ptpl');
-    tpl.value='{user}-region-JP-sid-{session}-t-120';
-    q('#f_pttl').value=7200;
-    tpl.focus();
-    toast('已按 1024Proxy 官方格式填好模板（粘性 120 分钟，出口日本）。改地区改 -region-JP-，粘性时长改 t-N（1-120 分钟，且要大于单个任务最长耗时）。网关地址、端口、密码在 1024 控制台「账密认证 → 去使用」页查看。');
-  }else{
-    q('#f_pextint').value=60;
-    q('#f_pexturl').focus();
-    toast('去 1024 控制台生成 API 提取链接（返回格式选 txt，一行一个 host:port:user:pass），粘贴到「提取链接」。这类接口按调用次数计费，间隔保持 ≥60 秒。');
-  }
-}
 let proxyProbeCache={};
 let shownProxyIds=[];
 async function loadProxies(){
@@ -3336,7 +3317,7 @@ async function loadProxies(){
   proxyCache=r.proxies||[];
   const dp=q('#defaultProxyShow');if(dp)dp.textContent=r.default_proxy?'（'+r.default_proxy+'）':'（未设置）';
   const shown=proxyCache.filter(p=>searchHit('proxies',p.name,p.host,p.port,p.username,p.protocol,p.remark,
-    proxyProbeCache[p.id],p.mode==='extract'?'节点池':p.is_dynamic?'隧道 动态':'静态'));
+    proxyProbeCache[p.id],p.provider==='1024proxy'?'1024Proxy':p.mode==='extract'?'节点池':p.is_dynamic?'隧道 动态':'静态'));
   selPrune('proxies',shown.map(p=>p.id));
   shownProxyIds=shown.map(p=>p.id);
   q('#proxiesTable').innerHTML=table(
@@ -3344,9 +3325,7 @@ async function loadProxies(){
     shown.map(p=>[
       selBox('proxies',p.id,false),
       noTr(p.name),
-      p.mode==='extract'?(p.extract_url?'<span class="badge b-blue">提取链接</span>'
-                                        :'<span class="badge b-blue">粘贴节点</span>')
-        :p.is_dynamic?'<span class="badge b-blue">隧道</span>':'<span class="tiny">静态</span>',
+      proxyTypeBadge(p),
       esc(p.protocol),
       p.host?esc(p.host):'<span class="tiny">（节点池）</span>',
       p.port?p.port:'<span class="tiny">—</span>',
@@ -3380,11 +3359,15 @@ async function showNodes(id){
     esc(n.last_exit_ip||'')||'<span class="tiny">—</span>',
     n.fail_count||0
   ]);
+  const extractInfo=p&&p.extract_url
+    ?'<div class="tiny" style="margin-bottom:8px">最近提取：'+(p.extract_last_at?fmt(p.extract_last_at):'—')
+      +' · 新增 '+(p.extract_last_count||0)+' 个'+(p.extract_last_error?' · 错误：'+noTr(p.extract_last_error):'')+'</div>'
+    :'';
   showDlg('<h2>节点池 — '+noTr(p?p.name:id)+'</h2>'+
-    '<div class="tiny" style="margin-bottom:8px">共 '+r.total+' 个，可用 '+r.alive+' 个，废弃 '+r.dead+' 个</div>'+
+    '<div class="tiny" style="margin-bottom:8px">共 '+r.total+' 个，可用 '+r.alive+' 个，废弃 '+r.dead+' 个</div>'+extractInfo+
     '<div style="max-height:45vh;overflow:auto">'+table(['#','地址','用户名','状态','过期时间','出口IP','失败次数'],rows)+'</div>'+
     '<div class="row">'+(p&&p.extract_url?'<button class="btn" onclick="refreshNodes(\''+id+'\')">补一批节点（提取）</button>':'')+
-    '<button class="btn" onclick="pasteNodes(\''+id+'\')">粘贴补节点</button>'+
+    (p&&p.provider==='1024proxy'?'':'<button class="btn" onclick="pasteNodes(\''+id+'\')">粘贴补节点</button>')+
     '<button class="btn" onclick="pruneNodes(\''+id+'\')">清理过期/废节点</button>'+
     '<button class="btn" onclick="hide(\'dlg\')">关闭</button></div>');
 }
@@ -3434,7 +3417,8 @@ async function rotateProxy(id){
   if(!await confirm(dialogText`给绑定在「${p?p.name:id}」上的所有号换出口 IP？`))return;
   try{
     const r=await api('/api/admin/proxies/'+encodeURIComponent(id)+'/rotate',{method:'POST'});
-    alert(`已换 IP：${r.rotated.length} 个\n跳过：${r.skipped.length} 个${r.skipped.length?'（未到最小换IP间隔）':''}`);
+    const why=(r.skipped||[]).map(s=>s.account+'：'+s.reason).join('\n');
+    alert(`已换 IP：${r.rotated.length} 个`+(r.skipped.length?`\n没换成：${r.skipped.length} 个\n${why}`:''));
   }catch(e){return alert(dialogText`${e.message}`);}
   loadProxies();loadAccounts();
 }
@@ -3516,6 +3500,8 @@ async function batchProbeIps(kind){
 }
 
 function proxyDialog(p){
+  // 1024Proxy 专用记录有自己的表单，不走这个通用表单
+  if(p&&p.provider==='1024proxy')return proxy1024Dialog(p);
   const isEdit=!!p;
   const oldPw=p&&p.has_password?'（原密码已保存，留空保持不变）':'';
   // 隧道型（旧的 dynamic）在面板上归到「动态IP + 隧道」这一档
@@ -3529,11 +3515,6 @@ function proxyDialog(p){
     <label>出口类型</label><select id="f_pmode" onchange="onProxyModeChange()" style="width:100%;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:13px">${proxyModeOptions(mode)}</select>
     <div id="dynBox" style="display:${mode==='extract'?'block':'none'};border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0">
       <div class="tiny" style="margin-bottom:6px">动态IP：不用填 IP、端口，出口由节点池里的节点决定（<b>一个节点只给一个号用</b>）。</div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
-        <span class="tiny">供应商预设：</span>
-        <button type="button" class="btn" onclick="preset1024('tunnel')">1024Proxy 账密隧道</button>
-        <button type="button" class="btn" onclick="preset1024('url')">1024Proxy API 提取</button>
-      </div>
       ${proxyKindRadios(kind)}
       <div id="extractBox" style="display:${mode==='extract'&&kind==='url'?'block':'none'};margin-top:8px">
         <label>提取链接</label><input id="f_pexturl" value="${p?esc(p.extract_url||''):''}" placeholder="https://api.provider.com/...GetIpByGenerateLink?id=xxx">
@@ -3570,7 +3551,153 @@ function proxyAddTabs(on){
   return `<div class="ptabs">
     <button class="ptab ${on==='std'?'on':''}" onclick="proxyDialog(null)">＋ 标准添加</button>
     <button class="ptab ${on==='quick'?'on':''}" onclick="quickProxyDialog()">☰ 快捷添加</button>
+    <button class="ptab ${on==='1024'?'on':''}" onclick="proxy1024Dialog()">⚡ 1024Proxy</button>
   </div>`;
+}
+/* ---- 1024Proxy 专用流程（服务端 proxy_1024，与上面的通用代理表单分开） ----
+   账密隧道：网关 + 账号密码，每个号一个会话 ID（= 独立出口 IP），粘性 1-120 分钟，适合要保持登录态的号；
+   API 提取：IP 白名单鉴权，提取 host:port 给每个号用，粘性 10 / 15 分钟，到期换 IP。 */
+const P1024_REGIONS=[['JP','日本（JP）'],['KR','韩国（KR）']];
+const P1024_LINK_EXAMPLE='https://white.1024proxy.com/white/api?region=JP&num=1&time=10&format=1&type=txt';
+// 还没有 1024Proxy 时的邀请链接：开通后才能拿到账密或提取链接
+const P1024_INVITE='https://api.1024proxy.com/add/share/etwsrptz8';
+/** 代理列表「类型」列：1024Proxy 专用记录单独标识，其余按通用出口类型。 */
+function proxyTypeBadge(p){
+  if(p.provider==='1024proxy')
+    return p.mode==='dynamic'?'<span class="badge b-blue">1024Proxy 隧道</span>':'<span class="badge b-blue">1024Proxy API</span>';
+  if(p.mode==='extract')
+    return p.extract_url?'<span class="badge b-blue">提取链接</span>':'<span class="badge b-blue">粘贴节点</span>';
+  return p.is_dynamic?'<span class="badge b-blue">隧道</span>':'<span class="tiny">静态</span>';
+}
+/** 解析控制台生成的提取链接（只认 1024Proxy 自己的域名），用来给表单填默认值、提示地区问题。 */
+function parse1024Link(link){
+  let u;try{u=new URL(link);}catch(e){return null;}
+  if(!/1024proxy/i.test(u.hostname))return null;
+  const int=(key,fallback)=>{const v=Number(u.searchParams.get(key));return Number.isInteger(v)&&v>0?v:fallback;};
+  return {region:String(u.searchParams.get('region')||'').toUpperCase(),num:int('num',1),time:Math.min(int('time',10),120)};
+}
+function on1024KindChange(){
+  const kind=(q('input[name=f_1024kind]:checked')||{}).value;
+  q('#p1024tunnel').style.display=kind==='tunnel'?'block':'none';
+  q('#p1024api').style.display=kind==='api'?'block':'none';
+}
+/** 新建时按链接给「每次提取数量 / 粘性时长 / 出口地区」填默认值；编辑时不覆盖已保存的设置。 */
+function on1024LinkChange(){
+  const link=q('#f_1024link'),info=parse1024Link(link.value.trim());
+  if(info&&link.dataset.fill==='1'){
+    q('#f_1024num').value=info.num;q('#f_1024time').value=info.time;
+    q('#f_1024region').value=P1024_REGIONS.some(r=>r[0]===info.region)?info.region:'JP';
+  }
+  const known=!!info&&P1024_REGIONS.some(r=>r[0]===info.region);
+  q('#f_1024linkinfo').textContent=!info?''
+    :`链接里的地区：${info.region||'未指定'} · 数量：${info.num} · 粘性：${info.time} 分钟`+(known?'':'（不是日韩，实际按上面的「出口地区」提取）');
+}
+function proxy1024Dialog(p){
+  const isEdit=!!p,s=isEdit?(p.provider_settings||{}):{};
+  const kind=p?(p.mode==='dynamic'?'tunnel':'api'):'tunnel';
+  const selectStyle='style="width:100%;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:13px"';
+  const radio=(value,text)=>`<label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:4px 0">
+    <input type="radio" name="f_1024kind" value="${value}" ${kind===value?'checked':''} ${isEdit?'disabled':''} onchange="on1024KindChange()"> ${text}</label>`;
+  showDlg(`<h2>${isEdit?'编辑 1024Proxy':'添加 1024Proxy'}</h2>${isEdit?'':proxyAddTabs('1024')}
+    <div class="tiny" style="margin-bottom:8px">填 1024 控制台里的账号或提取链接即可：出口地区、用户名格式、换 IP、节点有效期都由号池按官方规则处理，不用手写用户名模板。还没有 1024Proxy？<a href="${P1024_INVITE}" target="_blank" rel="noopener noreferrer">没有 IP？邀请好友获取</a></div>
+    <label>名称</label><input id="f_1024name" value="${p?esc(p.name):''}" placeholder="例如：1024 日本住宅">
+    <label>接入方式</label>
+    ${radio('tunnel','账密隧道：网关 + 账号密码，每个号一个独立 IP，粘性 1-120 分钟，适合要保持登录态的号')}
+    ${radio('api','API 提取：IP 白名单鉴权，提取地址给每个号用，粘性 10 / 15 分钟，到期换 IP')}
+    <label>协议</label><select id="f_1024protocol" ${selectStyle}>${proxyProtocolOptions(p?p.protocol:'http')}</select>
+    <label>出口地区</label><select id="f_1024region" ${selectStyle}>${P1024_REGIONS.map(([v,t])=>`<option value="${v}" ${v===(s.region||'JP')?'selected':''}>${t}</option>`).join('')}</select>
+    <div id="p1024tunnel" style="display:${kind==='tunnel'?'block':'none'}">
+      <label>网关地址</label><input id="f_1024gateway" value="${p&&p.mode==='dynamic'&&p.host?esc(p.host+':'+p.port):''}" placeholder="例如 us.1024proxy.io:3000（1024 控制台「账密认证 → 去使用」页查看）" spellcheck="false" autocomplete="off">
+      <label>1024Proxy 账号</label><input id="f_1024user" value="${p?esc(p.username||''):''}" spellcheck="false" autocomplete="off">
+      <label for="f_ppass">密码${isEdit&&p.has_password?'（原密码已保存，留空保持不变）':''}</label>
+      <div class="proxy-password"><input id="f_ppass" type="password" autocomplete="new-password" data-dirty="0" data-loaded="0" oninput="this.dataset.dirty='1'"><button type="button" class="btn" id="proxyPasswordToggle" aria-controls="f_ppass" aria-pressed="false" onclick="toggleProxyPassword('${p?p.id:''}',${!!(p&&p.has_password)},this)">显示</button></div>
+      <label>粘性时长（分钟，1-120）</label><input id="f_1024ttl" type="number" min="1" max="120" value="${s.ttl||120}">
+      <div class="tiny">同一个号的出口 IP 在粘性时长内保持不变，到期自动换新会话。时长要大于单个任务的最长耗时（30 秒视频约 12-14 分钟）。</div>
+    </div>
+    <div id="p1024api" style="display:${kind==='api'?'block':'none'}">
+      <label>提取链接</label><input id="f_1024link" data-fill="${isEdit?'0':'1'}" value="${p&&p.mode==='extract'?esc(p.extract_url||''):''}" placeholder="${esc(P1024_LINK_EXAMPLE)}" spellcheck="false" autocomplete="off" oninput="on1024LinkChange()">
+      <div id="f_1024linkinfo" class="tiny" style="margin-top:4px"></div>
+      <div class="tiny" style="margin-top:8px">白名单要填<b>这台服务器</b>的公网 IP（不是打开面板的电脑）：
+        <span id="p1024ipState">正在检测本机公网 IP…</span>
+        <code id="p1024ip" translate="no" style="font-weight:600"></code>
+        <span id="p1024ipErr" translate="no"></span>
+        <button type="button" class="btn" onclick="copy1024Ip()">复制</button>
+        <button type="button" class="btn" onclick="detect1024Ip(true)">重新检测</button>
+      </div>
+      <div style="display:flex;gap:10px">
+        <div style="flex:1"><label>每次提取数量</label><input id="f_1024num" type="number" min="1" value="${s.num||1}"></div>
+        <div style="flex:1"><label>粘性时长（分钟，官方 10 / 15）</label><input id="f_1024time" type="number" min="1" max="120" value="${s.time||10}"></div>
+      </div>
+      <div class="tiny">API 模式靠 IP 白名单鉴权：先在 1024 控制台把部署服务器的公网 IP 加入白名单；服务器 IP 变了要同步更新，否则提取和连接都会失败。链接里的地区（控制台默认 Rand 随机）会被上面的「出口地区」覆盖。每个号租用一个提取到的地址，到期或点「换IP」时换新，池里没有空闲地址就立刻再提取，所以数量建议不小于要绑定的账号数。粘性到期后出口 IP 一定会变，要保持登录态的号请用账密隧道。</div>
+    </div>
+    <label>备注</label><input id="f_1024remark" value="${p?esc(p.remark||''):''}">
+    <div class="row"><button class="btn" onclick="hide('dlg')">取消</button>
+      <button class="btn btn-p" onclick="submitProxy1024('${p?p.id:''}')">${isEdit?'保存':'添加'}</button></div>`);
+  on1024LinkChange();
+  detect1024Ip();
+}
+/** 查这台服务器的公网 IP，供复制到 1024 控制台白名单。refresh 时忽略服务端缓存。 */
+async function detect1024Ip(refresh){
+  const state=q('#p1024ipState'),ip=q('#p1024ip'),err=q('#p1024ipErr');
+  if(!state)return;
+  state.textContent='正在检测本机公网 IP…';ip.textContent='';err.textContent='';
+  try{
+    const r=await api('/api/admin/proxies/1024/public-ip'+(refresh?'?refresh=1':''));
+    if(!r||!r.ok||!r.ip){
+      state.textContent='检测不到本机公网 IP';err.textContent=(r&&r.error)||'';return;
+    }
+    state.textContent='本机公网 IP（复制后粘贴到 1024 控制台白名单）：';ip.textContent=r.ip;
+  }catch(e){state.textContent='检测不到本机公网 IP';err.textContent=e.message||'';}
+}
+function copy1024Ip(){
+  const ip=(q('#p1024ip').textContent||'').trim();
+  if(!ip)return alert('还没有检测到公网 IP');
+  copy(ip);toast('公网 IP 已复制，去 1024 控制台白名单粘贴');
+}
+async function submitProxy1024(id){
+  const kind=(q('input[name=f_1024kind]:checked')||{}).value;
+  const body={kind,name:q('#f_1024name').value.trim(),protocol:q('#f_1024protocol').value,
+    region:q('#f_1024region').value,remark:q('#f_1024remark').value.trim()};
+  if(!body.name)return alert('请填写名称');
+  if(kind==='tunnel'){
+    body.gateway=q('#f_1024gateway').value.trim();
+    body.username=q('#f_1024user').value.trim();
+    body.ttl=Number(q('#f_1024ttl').value||0);
+    const pw=q('#f_ppass').value;
+    if(!id||pw&&q('#f_ppass').dataset.dirty==='1')body.password=pw;   // 编辑时留空 = 沿用原密码
+  }else{
+    body.link=q('#f_1024link').value.trim();
+    body.num=Number(q('#f_1024num').value||0);
+    body.time=Number(q('#f_1024time').value||0);
+  }
+  let created=null;
+  try{
+    if(id)await api('/api/admin/proxies/'+encodeURIComponent(id)+'/1024',{method:'PATCH',body});
+    else created=(await api('/api/admin/proxies/1024',{method:'POST',body})).created;
+  }catch(e){return alert(dialogText`${e.message}`);}
+  hide('dlg');loadProxies();
+  if(created)verify1024(created);
+}
+/** 新建的 1024Proxy 记录立刻自检：隧道探测出口地区，API 提取一次。白名单没加、网关填错在这一步就报出来，
+    不用等绑了号才发现。 */
+async function verify1024(p){
+  const base='/api/admin/proxies/'+encodeURIComponent(p.id);
+  try{
+    if(p.mode==='dynamic'){
+      const r=await api(base+'/probe',{method:'POST'});
+      const where=[r.country,r.region,r.isp].filter(Boolean).join(' · ');
+      const inRegion=['JP','KR'].includes(String(r.country_code||'').toUpperCase());
+      if(!r.ok)alert(dialogText`已添加，但探测出口失败：${r.error||'未知错误'}`);
+      else alert(inRegion?dialogText`已添加 1024Proxy 隧道。出口 IP：${r.ip}\n归属：${where}`
+                         :dialogText`已添加 1024Proxy 隧道。出口 IP：${r.ip}\n归属：${where}\n不是日本/韩国出口，dola 会拒绝`);
+      proxyProbeCache[p.id]=r.ok?[r.ip,r.country,r.isp].filter(Boolean).join(' · '):'探测失败';
+    }else{
+      const r=await api(base+'/refresh-nodes',{method:'POST'});
+      alert(r.ok?dialogText`已添加 1024Proxy API 提取，首次提取拿到 ${r.added} 个地址（「节点池」里可查看）`
+                :dialogText`已添加 1024Proxy API 提取，但首次提取失败：\n${r.error||'未知错误'}`);
+    }
+  }catch(e){alert(dialogText`已添加，但自检没跑成：${e.message}`);}
+  loadProxies();
 }
 /** 快捷添加：一行一个代理，三种建法——
     static：每行一条「静态IP」代理（一个固定出口）；

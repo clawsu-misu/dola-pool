@@ -220,9 +220,12 @@ def test_rotating_a_proxy_reaches_every_account_bound_to_it(tmp_path, monkeypatc
 
     def rotate(name, reason="", force=False):
         calls.append((name, force))
-        return {"rotated": name == "acc1"}
+        return {"rotated": name == "acc1",
+                "reason": "" if name == "acc1" else "节点池没有可切换的空闲节点"}
     monkeypatch.setattr(bp, "rotate_account_ip", rotate)
-    assert bp.rotate_proxy_accounts("px_a") == {"rotated": ["acc1"], "skipped": ["acc2"]}
+    assert bp.rotate_proxy_accounts("px_a") == {
+        "rotated": ["acc1"],
+        "skipped": [{"account": "acc2", "reason": "节点池没有可切换的空闲节点"}]}
     assert calls == [("acc1", True), ("acc2", True)]
 
 
