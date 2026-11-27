@@ -53,10 +53,38 @@ export DEBIAN_FRONTEND=noninteractive
 c_info "安装系统依赖（python3 / venv / xvfb / ffmpeg / git）..."
 apt-get update -qq
 apt-get install -y -qq python3 python3-venv python3-pip xvfb ffmpeg git curl ca-certificates xz-utils >/dev/null
-PY=python3
-"$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' \
-  || die "需要 Python 3.10 以上，当前是 $($PY -V 2>&1)。请升级系统（Ubuntu 22.04+ / Debian 12+）。"
-c_ok "Python $($PY -V 2>&1 | awk '{print $2}')"
+# Python：优先系统里已有的 3.11+；只有 3.10 时装一个独立的 3.12 到 /opt/dola-python
+# （和 Node 一样不动系统 Python）。下载失败仍可退回 3.10 —— 代码里 asyncio.timeout 有兼容层。
+PY_STANDALONE="3.12"
+UV_BIN="${UV_BIN:-/usr/local/bin/uv}"
+py_ok(){ "$1" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; }
+py_minor(){ "$1" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo 0.0; }
+
+PY=""
+for cand in python3.12 python3.11; do
+  if command -v "$cand" >/dev/null && py_ok "$cand"; then PY="$(command -v "$cand")"; break; fi
+done
+if [ -z "$PY" ]; then
+  command -v python3 >/dev/null && py_ok python3 && PY="$(command -v python3)"
+fi
+[ -n "$PY" ] || die "没有可用的 Python 3.10+，请先 apt-get install python3 python3-venv"
+
+if [ "$(py_minor "$PY")" = "3.10" ]; then
+  c_info "系统只有 Python 3.10，安装独立的 ${PY_STANDALONE}（不影响系统 Python）..."
+  if [ ! -x "$UV_BIN" ]; then
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$(dirname "$UV_BIN")" sh >/dev/null 2>&1 || true
+  fi
+  if [ -x "$UV_BIN" ]; then
+    env UV_PYTHON_INSTALL_DIR=/opt/dola-python "$UV_BIN" python install "$PY_STANDALONE" >/dev/null 2>&1 || true
+  fi
+  NEW_PY="$(find /opt/dola-python -maxdepth 3 -type f -name "python${PY_STANDALONE}" 2>/dev/null | head -1)"
+  if [ -n "$NEW_PY" ] && py_ok "$NEW_PY"; then
+    PY="$NEW_PY"
+  else
+    c_warn "独立 Python 安装失败，继续用 3.10（兼容层已覆盖，功能不受影响）"
+  fi
+fi
+c_ok "Python $("$PY" -V 2>&1 | awk '{print $2}')（$PY）"
 
 # Node.js：纯 API 出片的 bdms 签名依赖它（缺了会导致验证/出片失败）
 node_major(){ command -v node >/dev/null && node -v | sed 's/^v\([0-9]*\).*/\1/' || echo 0; }
@@ -105,6 +133,12 @@ c_ok "代码就绪：$DOLA_DIR"
 as_user(){ runuser -u "$DOLA_USER" -- env HOME="$(getent passwd "$DOLA_USER" | cut -d: -f6)" "$@"; }
 
 c_info "创建虚拟环境并安装 Python 依赖（首次约 2~5 分钟）..."
+# 旧 venv 用的是更老的 Python（例如 3.10）时重建，否则升级后还是旧解释器
+if [ -x "$DOLA_DIR/.venv/bin/python" ] \
+   && [ "$(py_minor "$DOLA_DIR/.venv/bin/python")" != "$(py_minor "$PY")" ]; then
+  c_info "虚拟环境 Python $("$DOLA_DIR/.venv/bin/python" -V 2>&1 | awk '{print $2}') → $("$PY" -V 2>&1 | awk '{print $2}')，重建中..."
+  rm -rf "$DOLA_DIR/.venv"
+fi
 [ -x "$DOLA_DIR/.venv/bin/python" ] || as_user "$PY" -m venv "$DOLA_DIR/.venv"
 as_user "$DOLA_DIR/.venv/bin/pip" install -q --upgrade pip
 as_user "$DOLA_DIR/.venv/bin/pip" install -q -r "$DOLA_DIR/requirements.txt" -r "$DOLA_DIR/deploy-extra-requirements.txt"

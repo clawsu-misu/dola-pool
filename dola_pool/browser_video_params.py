@@ -2,6 +2,7 @@
 import asyncio
 import re
 
+from dola_pool import async_compat
 from dola_pool.generation_errors import PreSubmissionParameterTimeout, PreSubmissionParametersError
 
 
@@ -187,7 +188,7 @@ async def select_video_parameters(page, duration, ratio=None):
         step = f"新版参数面板 / {name}"
 
     try:
-        async with asyncio.timeout(25):
+        async with async_compat.timeout(25):
             trigger = page.locator(PARAMS_TRIGGER + ':visible')
             # Entering video mode renders the actionbar asynchronously. Do not
             # mistake that short render gap for a legacy page without this control.

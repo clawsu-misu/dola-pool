@@ -31,6 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from dola_pool.compress import GzipTextMiddleware
 from pydantic import BaseModel, Field
 
+from dola_pool import async_compat
 from dola_pool import config
 from dola_pool import cred_store
 from dola_pool import failure_text
@@ -897,7 +898,7 @@ async def _run_task(task_id, model, prompt, ratio, duration, reference_images, c
             last_attempt_wait = 2 * max(last_attempt_wait, config.LONG_VIDEO_TIMEOUT_MAX)
         overall_timeout = config.TASK_DEADLINE + last_attempt_wait + 60
         # Global-slot waiting has its own clock. Dispatch starts the attempt budget.
-        timeout_scope = asyncio.timeout(max(1, config.MAX_QUEUE_WAIT_SECONDS))
+        timeout_scope = async_compat.timeout(max(1, config.MAX_QUEUE_WAIT_SECONDS))
         dispatched = False
         def on_dispatch():
             nonlocal dispatched
@@ -1204,7 +1205,7 @@ async def _recover_work_loop(task_id: str) -> None:
             if pool.egress_throttle_remaining(account) > 0:
                 continue
             try:
-                async with asyncio.timeout(max(.1, float(row["recover_until"]) - time.time())):
+                async with async_compat.timeout(max(.1, float(row["recover_until"]) - time.time())):
                     res = target.get("result") or await pool.fetch_work_conversation_video(
                         account, conv, model=row.get("model") or "seedance-2.0",
                         duration=work_reply.WORK_DURATION if pair else row.get("duration"),

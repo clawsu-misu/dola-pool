@@ -4,6 +4,8 @@ import inspect
 import time
 from urllib.parse import urlsplit
 
+from dola_pool import async_compat
+
 
 def emit(on_poll, *, note=None, progress=None, wait_seconds=None):
     if not on_poll:
@@ -40,7 +42,7 @@ class BrowserReplies:
     async def read(self, response):
         try:
             from dola_pool.browser_hello_probe import reply_from_sse
-            async with asyncio.timeout(120):
+            async with async_compat.timeout(120):
                 body = await response.body()
             if len(body) > 2 * 1024 * 1024:
                 return
