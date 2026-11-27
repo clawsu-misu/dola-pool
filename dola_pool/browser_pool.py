@@ -31,6 +31,7 @@ from dola_pool.work_reply import (
     QUOTA_NOTE as WORK_QUOTA_NOTE, WORK_DURATION, WORK_LIMIT_RE, WORK_QUOTA_SECONDS, is_work_request, uses_work_mode, uses_work_pair,
     work_limit_until,
 )
+from dola_pool import async_compat
 from dola_pool import config
 from dola_pool import cred_store
 from dola_pool import dola_responder
@@ -1376,7 +1377,7 @@ class BrowserPool:
             raise RuntimeError("账号正在生成、验证或探测，稍后再验证")
         async with self._use_account(name, "verifying"):
             try:
-                async with asyncio.timeout(90):
+                async with async_compat.timeout(90):
                     return await self._verify_account_detail_locked(name)
             except TimeoutError as exc:
                 raise RuntimeError("验证超时：启动浏览器或代理连接过慢；请重试，未将账号标记为失效") from exc
@@ -2799,7 +2800,7 @@ class BrowserPool:
                             # 工作模式要排队等名额、开浏览器，有自己的时限，不套提交准备超时
                             browser_preparation = (not self.is_pure_account(account) and want_site == sites.DOLA
                                                    and not work_job)
-                            preparation = asyncio.timeout(config.PREPARE_TIMEOUT if browser_preparation else None)
+                            preparation = async_compat.timeout(config.PREPARE_TIMEOUT if browser_preparation else None)
                             def acknowledged(*args):
                                 if browser_preparation and not preparation.expired():
                                     preparation.reschedule(None)

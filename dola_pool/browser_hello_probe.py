@@ -4,6 +4,8 @@ import json
 import time
 from urllib.parse import urlsplit
 
+from dola_pool import async_compat
+
 
 def reply_from_sse(text):
     events = []
@@ -82,7 +84,7 @@ async def probe_browser_hello(account, *, timeout=60):
             return result("unconfirmed", "账号当前不是 Cloak 模式，未启动浏览器探测")
         async with async_playwright() as p:
             try:
-                async with asyncio.timeout(max(1, timeout) + 90):
+                async with async_compat.timeout(max(1, timeout) + 90):
                     context = await browser.launch_account_context(p, account)
                     page = await context.new_page()
                     await page.goto("https://www.dola.com/chat", timeout=60000, wait_until="domcontentloaded")
