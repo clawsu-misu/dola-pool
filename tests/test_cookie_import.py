@@ -1,6 +1,8 @@
 """多行 Cookie 头文本解析验证。"""
 from __future__ import annotations
 
+import json
+
 from dola_pool.cookie_import import (
     cookie_header_to_state,
     parse_cookie_header_text,
@@ -106,6 +108,22 @@ def test_json_array_multiple_bundles():
     two = COOKIE_JSON + "\n" + COOKIE_JSON.replace("sid-json", "sid-json-2")
     states = parse_cookie_header_text(two)
     assert [sessionid_from_state(s) for s in states] == ["sid-json", "sid-json-2"]
+
+
+def test_json_bundle_keeps_page_storage():
+    """本地登录工具的完整包：批量粘贴导入要连 localStorage 一起留下。"""
+    raw = json.dumps({
+        "format": "dola-pool-cookies-v1", "account": "acc1",
+        "cookies": [{"name": "sessionid", "value": "sid-full", "domain": ".dola.com", "path": "/"}],
+        "localStorage": {"__tea_cache_tokens_495671": '{"web_id":"42"}'},
+        "sessionStorage": {"tab": "1"},
+    })
+    state, = parse_cookie_header_text(raw)
+    assert sessionid_from_state(state) == "sid-full"
+    assert state["storage"] == {
+        "localStorage": {"__tea_cache_tokens_495671": '{"web_id":"42"}'},
+        "sessionStorage": {"tab": "1"},
+    }
 
 
 def test_json_wrapper_object_and_defaults():

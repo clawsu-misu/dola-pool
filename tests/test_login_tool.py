@@ -57,8 +57,17 @@ def test_cookie_bundle_keeps_dola_cookies_with_whitelisted_fields():
     assert bundle["format"] == "dola-pool-cookies-v1" and bundle["account"] == "acc1"
     assert [c["name"] for c in bundle["cookies"]] == ["sessionid"]
     assert bundle["cookies"][0]["value"] == "s3cret" and "size" not in bundle["cookies"][0]
+    assert "localStorage" not in bundle          # 没抓到存储时保持旧格式
     with pytest.raises(login_tool.ToolError, match="sessionid"):
         login_tool.cookie_bundle("acc1", [dict(SESSION, name="ttwid")])
+
+
+def test_cookie_bundle_keeps_page_storage_as_strings():
+    storage = {"localStorage": {"__tea_cache_tokens_495671": '{"web_id":"123"}', "n": None},
+               "sessionStorage": {}, "indexedDB": {"should": "drop"}}
+    bundle = login_tool.cookie_bundle("acc1", [SESSION], storage)
+    assert bundle["localStorage"] == {"__tea_cache_tokens_495671": '{"web_id":"123"}', "n": ""}
+    assert "sessionStorage" not in bundle and "indexedDB" not in bundle
 
 
 def test_export_bundle_writes_private_file_and_leaves_no_temp(tmp_path):
@@ -113,13 +122,17 @@ def test_push_logs_in_posts_cookies_and_reports_verification(monkeypatch):
     calls = fake_server(monkeypatch)
     base = "https://srv.example.com"
     assert login_tool.server_login(base, "admin", "pw") == "tok-1"
-    bundle = login_tool.cookie_bundle("acc1", [SESSION])
+    bundle = login_tool.cookie_bundle("acc1", [SESSION],
+                                      {"localStorage": {"__tea_cache_tokens_495671": '{"web_id":"123"}'}})
     assert "验证通过" in login_tool.push_to_server(base, "tok-1", bundle, proxy_id="p1")
     method, url, kwargs = calls[1]
     assert (method, url) == ("POST", base + "/api/admin/accounts")
     body = kwargs["json"]
     assert body["name"] == "acc1" and body["proxy_id"] == "p1" and body["cookie_skip_verify"] is False
-    assert json.loads(body["cookies"]) == bundle["cookies"]
+    # 推整个包，不只是 cookies 数组：服务器靠 localStorage 还原设备标识
+    sent = json.loads(body["cookies"])
+    assert sent["cookies"] == bundle["cookies"]
+    assert sent["localStorage"]["__tea_cache_tokens_495671"] == '{"web_id":"123"}'
     assert calls[0][2]["json"] == {"username": "admin", "password": "pw"}
     assert all(c[2]["headers"] == {"X-Admin-Key": "tok-1"} for c in calls[1:])
 
@@ -187,10 +200,11 @@ def test_exported_bundle_is_accepted_by_both_server_import_parsers():
     from dola_pool import cookie_import, cookie_login
 
     other = {"name": "ttwid", "value": "1", "domain": ".dola.com", "path": "/"}
-    raw = json.dumps(login_tool.cookie_bundle("acc1", [SESSION, other]), ensure_ascii=False)
+    raw = json.dumps(login_tool.cookie_bundle(
+        "acc1", [SESSION, other], {"localStorage": {"k": "v"}}), ensure_ascii=False)
     data = json.loads(raw)
     assert [c["name"] for c in cookie_login.normalize_cookies(data)] == ["sessionid", "ttwid"]
-    assert cookie_login.normalize_storage_bundle(data) == {}
+    assert cookie_login.normalize_storage_bundle(data) == {"localStorage": {"k": "v"}}
     state, = cookie_import.parse_cookie_header_text(raw)
     assert cookie_import.sessionid_from_state(state) == "s3cret"
     assert len(cookie_import.parse_cookie_header_text(raw + "\n" + raw)) == 2    # 连续粘贴 = 多个号
@@ -208,6 +222,11 @@ def fake_browser(monkeypatch, on_wait):
 
         async def wait_for_timeout(self, ms):
             on_wait(state)
+
+        async def evaluate(self, script):
+            if state.get("storage_fails"):
+                raise RuntimeError("页面已跳走")
+            return state.get("storage") or {}
 
     page = Page()
 
@@ -241,11 +260,31 @@ def test_capture_login_waits_for_manual_login_then_returns_cookies(tmp_path, mon
     monkeypatch.chdir(tmp_path)
     launched, closed = fake_browser(monkeypatch, lambda state: state.update(logged_in=True))
     proxy = {"server": "http://127.0.0.1:12345", "username": "u", "password": "p"}
-    assert _run(login_tool.capture_login("acc1", proxy)) == [SESSION]
+    cookies, storage = _run(login_tool.capture_login("acc1", proxy))
+    assert cookies == [SESSION] and storage == {}
     assert closed == [True]
     profile, kwargs = launched[0]
     assert profile == str(Path("accounts") / "acc1")      # 沿用原有行为：相对仓库根目录
     assert kwargs["headless"] is False and kwargs["locale"] == "ja-JP" and kwargs["proxy"] == proxy
+
+
+def test_capture_login_returns_page_storage_and_survives_a_read_failure(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    storage = {"localStorage": {"__tea_cache_tokens_495671": '{"web_id":"9"}'}, "sessionStorage": {}}
+
+    def login_with_storage(state):
+        state.update(logged_in=True, storage=storage)
+
+    fake_browser(monkeypatch, login_with_storage)
+    cookies, got = _run(login_tool.capture_login("acc1", None))
+    assert cookies == [SESSION] and got == storage
+
+    def login_but_storage_fails(state):
+        state.update(logged_in=True, storage_fails=True)
+
+    fake_browser(monkeypatch, login_but_storage_fails)
+    cookies, got = _run(login_tool.capture_login("acc2", None, log=lambda *a: None))
+    assert cookies == [SESSION] and got == {}      # 存储读失败只丢掉存储，登录不白做
 
 
 def test_capture_login_times_out_when_nobody_logs_in(tmp_path, monkeypatch):
@@ -286,7 +325,7 @@ def stub_run(monkeypatch, seen):
     async def capture(account, proxy_kwargs, log=print):
         seen["proxy"] = proxy_kwargs
         log(f"[{account}] 浏览器已打开")
-        return [dict(SESSION)]
+        return [dict(SESSION)], {"localStorage": {"__tea_cache_tokens_495671": '{"web_id":"7"}'}}
     monkeypatch.setattr(login_tool, "capture_login", capture)
     monkeypatch.setattr(login_tool, "copy_to_clipboard", lambda text, platform=None: seen.setdefault("copied", text) is not None)
     monkeypatch.setattr(login_tool.proxy_store, "probe_exit_ip", lambda url, timeout=15: {
@@ -460,7 +499,9 @@ def test_web_pushes_the_exported_bundle(web, monkeypatch):
     assert calls[0][:2] == ("POST", "https://srv.example.com/api/admin/login")
     posted = next(c for c in calls if c[0] == "POST" and c[1].endswith("/api/admin/accounts"))
     assert posted[2]["json"]["name"] == "acc1" and posted[2]["json"]["proxy_id"] == "p1"
-    assert json.loads(posted[2]["json"]["cookies"])[0]["value"] == "s3cret"
+    sent = json.loads(posted[2]["json"]["cookies"])
+    assert sent["cookies"][0]["value"] == "s3cret"
+    assert sent["localStorage"]["__tea_cache_tokens_495671"]   # 页面存储跟着 Cookie 一起推过去
     page = web.call("GET", "/api/status")[1].decode()
     assert "hunter2-admin-pw" not in page and "tok-1" not in page and "s3cret" not in page
     assert any("验证通过" in line for line in json.loads(page)["lines"])
@@ -493,7 +534,7 @@ def test_web_push_survives_starting_the_next_login(web, monkeypatch):
     assert code == 200 and json.loads(data)["message"] == "acc1：已导入，服务器在线验证通过"
     posted = next(c for c in calls if c[0] == "POST" and c[1].endswith("/api/admin/accounts"))
     assert posted[2]["json"]["name"] == "acc1"
-    assert json.loads(posted[2]["json"]["cookies"])[0]["value"] == "s3cret"
+    assert json.loads(posted[2]["json"]["cookies"])["cookies"][0]["value"] == "s3cret"
 
 
 def test_web_reports_failures_in_the_log_instead_of_hanging(web):

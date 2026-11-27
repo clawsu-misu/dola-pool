@@ -552,7 +552,7 @@ async def import_cookie_accounts_from_text(pool, raw_text: str,
             name = f"{name_prefix}{counter}"
             counter += 1
         existing.add(name)
-        bundle = {"cookies": state["cookies_list"]}
+        bundle = {"cookies": state["cookies_list"], **(state.get("storage") or {})}
         try:
             proxy_kwargs = {}
             if proxy_ids:
