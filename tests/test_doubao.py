@@ -142,6 +142,7 @@ class _FakeDP:
         self.vid_after = vid_after
         self.replies: list[str] = []
         self.reply_payloads: list[dict] = []
+        self.reply_images: list[list] = []
         self.BASE = self._real.BASE
         self.DolaNoDataError = self._real.DolaNoDataError
         self.downloaded = []
@@ -163,6 +164,7 @@ class _FakeDP:
             k["payload_hook"](payload)
         self.replies.append(payload["messages"][0]["content_block"][0]["content"]["text_block"]["text"])
         self.reply_payloads.append(payload)
+        self.reply_images.append(list(k.get("images") or []))
         return types.SimpleNamespace(error="", error_code="", conversation_id="conv1")
 
     def fetch_single_chain(self, *a, **k):
@@ -392,7 +394,10 @@ def test_dispatch_routes_by_site_and_tier(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("kind,requested,expected_work", [
     ("work", "auto", True),
-    ("personal", "work", False),
+    ("work", "work", True),
+    ("personal", "auto", False),
+    ("personal", "chat", False),
+    ("personal", "work", True),
 ])
 def test_auto_dispatch_uses_cookie_account_kind_for_doubao_route(
         tmp_path, monkeypatch, kind, requested, expected_work):

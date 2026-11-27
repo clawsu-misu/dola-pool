@@ -280,7 +280,7 @@ def test_work_service_recovery_keeps_reference_failure_failed(tmp_path, monkeypa
     assert seen[0]["reference_count"] == 1 and seen[0]["ratio"] == "9:16"
 
 
-def test_unbound_account_does_not_block_another_account_with_a_valid_bound_proxy(tmp_path, monkeypatch):
+def test_disabled_proxy_does_not_block_another_account_with_a_valid_bound_proxy(tmp_path, monkeypatch):
     module, pool = _pool(tmp_path, monkeypatch, dola=(), doubao=("db1", "db2"))
     monkeypatch.setattr(config, "ISOLATE_SHARED_EGRESS", True)
     monkeypatch.setattr(config, "EGRESS_PRECHECK", False)
@@ -288,6 +288,7 @@ def test_unbound_account_does_not_block_another_account_with_a_valid_bound_proxy
                         {"mode": "static", "protocol": "http", "host": "bound.invalid", "port": 8080,
                          "username": "", "password": ""} if name == "db2" else None)
     monkeypatch.setattr(module.proxy_store, "account_proxy_url", lambda name: "http://bound.invalid:8080")
+    monkeypatch.setattr(module.proxy_store, "binding_disabled", lambda name: name == "db1")
     calls = []
     async def generate(account, *args, **kwargs):
         calls.append(account)
@@ -390,3 +391,56 @@ def test_download_failure_after_video_creation_preserves_original_instead_of_ret
 def test_confirmation_does_not_confuse_the_start_time_with_the_aspect_ratio():
     assert g.confirm_mismatch("比例：16:9，时长：15秒，预计14:30开始。", duration=15,
                               model_display="Seedance 2.0 Fast", ratio="16:9") == ""
+
+
+PNG_DATA_URL = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+
+
+def test_fixed_account_test_uses_reference_images_and_removes_them(tmp_path, monkeypatch):
+    from test_auto_recover import FakePool, _server
+    from dola_pool.media import materialize_data_urls
+    pool = FakePool([])
+    server = _server(tmp_path, monkeypatch, pool)
+    monkeypatch.setattr(config, "REFERENCE_FILE_DIR", str(tmp_path / "refs"))
+    monkeypatch.setattr(config, "THUMB_DIR", str(tmp_path / "thumbs"))
+    monkeypatch.setattr(server, "TEST_JOBS", {"test_refs": {}})
+    local = materialize_data_urls([PNG_DATA_URL])
+    seen = []
+
+    async def fixed(*args, **kwargs):
+        seen.append([Path(p).is_file() for p in kwargs["reference_image_paths"]])
+        return {"ok": False, "account": "db1", "error": "素材授权待确认"}
+    pool.test_generate = fixed
+    _run(server._run_test_generate("test_refs", "db1", "湖面", "16:9", 5, "doubao-seedance-2.0-mini",
+                                   reference_images=local))
+    assert seen == [[True]]
+    assert not Path(local[0]).exists()
+    assert json.loads(server.store.get("test_refs")["reference_thumbs"])
+
+
+def test_fixed_account_test_passes_reference_paths_to_the_generator(tmp_path, monkeypatch):
+    module, pool = _pool(tmp_path, monkeypatch, dola=(), doubao=("db1",))
+    pool.set_source("db1", "cookie")
+    monkeypatch.setattr(config, "PURE_API_ENABLED", True)
+    captured = {}
+
+    def fake(**kwargs):
+        captured.update(kwargs)
+        return {"account": "db1", "local_path": "", "delivery": "link", "video_url": "https://cdn.invalid/v.mp4"}
+    monkeypatch.setattr(g, "generate_doubao_video", fake)
+    _run(pool.test_generate("db1", "湖面", "16:9", 5, "doubao-seedance-2.0-mini",
+                            reference_image_paths=["/tmp/ref.png"]))
+    assert ["/tmp/ref.png"] in [v for v in captured.values() if isinstance(v, list)]
+
+
+def test_test_generate_endpoint_rejects_unusable_reference_images(tmp_path, monkeypatch):
+    from dola_pool import server as server_mod
+    from fastapi import HTTPException
+    module, pool = _pool(tmp_path, monkeypatch, dola=(), doubao=("db1",))
+    monkeypatch.setattr(server_mod, "pool", pool)
+    monkeypatch.setattr(server_mod, "_admin_auth", lambda key: None)
+    body = server_mod.TestGenRequest(prompt="湖面", model="doubao-seedance-2.0-mini", duration=5,
+                                     force=True, reference_images=["file:///etc/passwd"])
+    with pytest.raises(HTTPException) as caught:
+        _run(server_mod.admin_test_generate("db1", body, None))
+    assert caught.value.status_code == 422

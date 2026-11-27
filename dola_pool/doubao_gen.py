@@ -29,9 +29,12 @@ from typing import Any, Callable
 from dola_pool import config
 from dola_pool import dola_responder
 from dola_pool import sites
+from dola_pool import upstream_error
 from dola_pool.account_transport import redact_error
-from dola_pool.generation_errors import UpstreamReplyError, VideoSkillUnavailableError
-from dola_pool.upstream_reply import reply_failure
+from dola_pool.generation_errors import (
+    UpstreamGenerationFailed, UpstreamReplyError, VideoSkillUnavailableError,
+)
+from dola_pool.upstream_reply import final_generation_failure, reply_failure
 from dola_pool.pure_api_gen import (
     PureApiError, PureLoginExpired,
     UnsupportedDurationError, _emit_note_text, _emit_upstream_note, _load_state,
@@ -43,6 +46,8 @@ log = logging.getLogger("dola.doubao")
 
 CONFIRM_REPLY = "确认生成"
 PAID_SCENE = "gen_video_by_downgraded_model"
+# 参考图里有人物时，豆包确认参数之后可能再弹一张「素材均已获充分授权」的确认卡，点了才开始生成
+AUTH_SCENE = "creation_portrait_video_auth_confirm"
 LOGIN_EXPIRED_CODES = ("710012001",)
 
 
@@ -120,6 +125,46 @@ def _session(dp, state_file, proxy: str):
 
 # ---------------------------------------------------------------- 会话解析
 
+def _video_tools(ext: dict) -> list[dict]:
+    """视频工具的结构化结果（状态 / 失败码 / 原因枚举）；图片等其他工具不算。"""
+    records = ext.get("ai_creation_tool_list") or []
+    if isinstance(records, str):
+        try:
+            records = json.loads(records)
+        except (ValueError, RecursionError):
+            return []
+    out = []
+    for record in records if isinstance(records, list) else []:
+        if not isinstance(record, dict) or record.get("file_type") not in (None, "", "video"):
+            continue
+        if record.get("tool_name") and "video" not in str(record["tool_name"]).lower():
+            continue
+        status = str(record.get("status") or "")
+        reason = str(record.get("failure_reason") or "")
+        out.append({"status": int(status) if re.fullmatch(r"[0-9]{1,3}", status) else 0,
+                    "failCode": str(record.get("fail_code") or ""),
+                    "reason": reason if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", reason) else ""})
+    return out
+
+
+def final_failure(msgs: list[dict]) -> dict | None:
+    """会话最后一条机器人消息的视频工具已判失败、且整个会话没有视频时，返回失败详情。
+
+    只认结构化状态（工具 status=5 且 fail_code 非 0），不认文案：「额度未扣除」这类话本身
+    不能证明会话已结束；ai_creation_res_code 单独非 0（如前置确认的 710082041）也不算失败。
+    """
+    latest = next((m for m in reversed(msgs) if m["bot"]), None)
+    if not latest or latest["index"] <= max((m["index"] for m in msgs if not m["bot"]), default=-1):
+        return None                       # 之后又有人在会话里回过话：等新的结果
+    if not any(t["failCode"] not in ("", "0") for t in latest["tools"]):
+        return None
+    failure = final_generation_failure(latest, any(m["bot"] and m["vids"] for m in msgs))
+    if failure:
+        tool = next(t for t in reversed(latest["tools"]) if t["failCode"] not in ("", "0"))
+        failure.update(code=tool["failCode"], reason=tool["reason"], index=latest["index"])
+    return failure
+
+
 def _messages(chain: Any) -> list[dict]:
     """/im/chain/single 回包 → 按会话序号排好的消息（只取用得到的字段）。"""
     found: dict[str, dict] = {}
@@ -168,10 +213,15 @@ def _messages(chain: Any) -> list[dict]:
         ext = raw.get("ext") if isinstance(raw.get("ext"), dict) else {}
         out.append({
             "index": index,
+            "message_id": str(raw.get("message_id") or ""),
+            "chat_ability": ext.get("chat_ability") if isinstance(ext.get("chat_ability"), str) else "",
+            "upstream_error": upstream_error.from_message(raw),
             "bot": str(raw.get("user_type")) == "2",
             "text": "\n".join(texts),
             "buttons": buttons,
             "vids": vids,
+            "resCode": str(ext.get("ai_creation_res_code") or ""),
+            "tools": _video_tools(ext),
             "finished": finished and str(ext.get("is_finish", "1")).lower() in {"1", "true"},
             # 哪个智能体回的：视频创作是 Agent-Creation（带 use_creation），普通对话是 seed_main
             "agent_intention": str(ext.get("agent_intention") or ""),
@@ -287,6 +337,36 @@ def looks_like_paid_prompt(text: str, buttons: list[dict] | None = None) -> bool
     return "付费额度" in c and ("是否继续" in c or "是否" in c) and "将消耗付费额度，并" not in c
 
 
+def wants_authorization(message: dict) -> bool:
+    """停在素材/肖像授权确认卡上：只认按钮 scene，不从文案推断。"""
+    return any(str((b or {}).get("scene")) == AUTH_SCENE for b in message.get("buttons") or [])
+
+
+def authorization_request(messages: list[dict], card: dict) -> tuple[str, str, dict | None]:
+    """授权卡的「确认生成」按钮 → (原请求文字, creation_btn_rely_info, 原请求的 chat_ability)。
+
+    网页点这个按钮（command=SendInvisibleMsg）不是发一句话，而是把卡片指向的原请求
+    （creation_btn_rely_info.raw_req_msg_id）连同它的 chat_ability 以隐藏消息重发一次，
+    并在请求 ext 里带上按钮的 creation_btn_rely_info。拿不到按钮凭据或原请求时返回空串。
+    """
+    button = next((b for b in card.get("buttons") or [] if str((b or {}).get("scene")) == AUTH_SCENE), None)
+    rely = ((button or {}).get("extra") or {}).get("creation_btn_rely_info")
+    if not isinstance(rely, str) or not rely:
+        return "", "", None
+    try:
+        raw_id = str(json.loads(rely).get("raw_req_msg_id_str") or "")
+    except (TypeError, ValueError, AttributeError):
+        return "", "", None
+    source = next((m for m in messages if not m["bot"] and raw_id and m.get("message_id") == raw_id), None)
+    if not source or not source["text"]:
+        return "", "", None
+    try:
+        ability = json.loads(source.get("chat_ability") or "")
+    except (TypeError, ValueError):
+        ability = None
+    return source["text"], rely, ability if isinstance(ability, dict) and ability.get("ability_param") else None
+
+
 def looks_like_accepted(text: str) -> bool:
     c = _compact(text)
     return any(k in c for k in ("视频生成已提交", "本次生成将消耗", "将消耗付费额度，并", "视频生成好后",
@@ -352,9 +432,23 @@ def _keep_reply_text(dp, text: str):
     return hook
 
 
+def _hidden_resend(base, *, ability: dict | None, extra_ext: dict):
+    """按钮式确认：消息设为隐藏（MessageStatus_INVISIBLE=1），沿用原请求的 chat_ability，ext 带按钮凭据。"""
+    def hook(payload):
+        if base:
+            base(payload)
+        for message in payload.get("messages") or []:
+            message["message_status"] = 1
+        if ability:
+            payload["chat_ability"] = dict(ability)
+        payload.setdefault("ext", {}).update(extra_ext)
+    return hook
+
+
 def _reply(dp, session, ctx, headers, conversation_id: str, text: str = CONFIRM_REPLY, *,
-           model: str = "", duration: int = 5, ratio: str | None = None):
-    """在会话里回一句话。
+           model: str = "", duration: int = 5, ratio: str | None = None,
+           button_ext: dict | None = None, ability: dict | None = None, images: list | None = None):
+    """在会话里回一句话（images 只在按钮式确认时带：重发原请求连同参考图）。
 
     给了 model（视频任务的确认 / 付费确认）时按「视频生成」技能发：带和首条消息同样的 chat_ability。
     2026-11-03 实测：不带技能的「确认生成」被豆包普通对话（seed_main）接走，它嘴上说「已确认，开始生成」，
@@ -365,14 +459,42 @@ def _reply(dp, session, ctx, headers, conversation_id: str, text: str = CONFIRM_
     except Exception as exc:
         raise TimeoutError(f"豆包确认前读取原会话失败（{type(exc).__name__}），保留原会话核对，未重复提交") from None
     result = dp.submit_chat_completion(
-        session, ctx, headers, images=[], audios=[], prompt=text, duration=duration if model else 5,
+        session, ctx, headers, images=list(images or []), audios=[], prompt=text, duration=duration if model else 5,
         model=model, ratio=ratio, timeout_sec=180, video_ability=bool(model), conversation_id=conversation_id,
         section_id=dp.find_latest_section_id(chain) or "",
         last_message_index=dp.find_latest_message_index(chain),
-        payload_hook=_keep_reply_text(dp, text) if model else None)
+        payload_hook=(_hidden_resend(_keep_reply_text(dp, text) if model else None,
+                                     ability=ability, extra_ext=button_ext) if button_ext
+                      else _keep_reply_text(dp, text) if model else None))
     if getattr(result, "error", ""):
         raise TimeoutError("豆包确认回复未取得有效回执，保留原会话核对，未重复提交")
     return result
+
+
+def _confirm_authorization(dp, session, ctx, headers, conversation_id: str, msgs: list[dict], card: dict, *,
+                           authorized: bool, model: str, duration: int, ratio: str | None,
+                           images: list | None = None):
+    """素材授权确认卡：按网页点「确认生成」的方式确认一次。确认不了或再次出现时在生成前结束，不换号重提。
+
+    网页按钮重发时带上卡片所指消息里的附件。网页上图和文字在同一条消息里，卡片指回它，图就跟着重发；
+    号池的图单独一条，卡片常指向后来回的「确认生成」（不带图）。只重发文字时豆包会回「需要你上传图1」
+    （2026-11-27 acc154 实测），所以这里带上本任务已上传的参考图，效果与网页图文同条一致。
+    """
+    text = card["text"]
+    if not config.DOUBAO_CONFIRM_MATERIAL_AUTH:
+        why = "未开启自动确认（DOUBAO_CONFIRM_MATERIAL_AUTH=0）"
+    elif authorized:
+        why = "已确认过一次，豆包再次要求确认，未重复确认"
+    else:
+        request, rely, ability = authorization_request(msgs, card)
+        if request:
+            _reply(dp, session, ctx, headers, conversation_id, text=request, model=model, duration=duration,
+                   ratio=ratio, button_ext={"creation_btn_rely_info": rely}, ability=ability, images=images)
+            return
+        why = "卡片缺少确认凭据，无法按按钮方式确认"
+    raise UpstreamReplyError(
+        "素材授权待确认", f"豆包要求确认参考图素材（含人物肖像）已获授权后才开始生成；尚未生成，{why}。上游原文：{text[:800]}",
+        generation_started=False, allow_account_retry=False)
 
 
 def nowatermark_url(dp, session, ctx, vid: str) -> tuple[str, float | None]:
@@ -558,6 +680,7 @@ def generate_doubao_video(
 
     dp = _site()
     session, ctx, headers = _session(dp, state_file, proxy)
+    diagnostic = {}
     try:
         from dola_pool.protocol import doubao_site
         log.info("doubao prepare account=%s model=%s duration=%s ratio=%s references=%s client=%s proxy_bound=%s",
@@ -607,7 +730,9 @@ def generate_doubao_video(
         vid = ""
         reference_error = ""
         plain_seen: set[int] = set()
+        failure_seen: tuple = (None, 0)
         creation_confirmation = False
+        authorized = False
         responder = dola_responder.DialogueResponder(
             prompt=prompt, ratio=ratio, duration=duration, attachments=len(images), model=display, site="豆包")
         with _progress_heartbeat(on_poll):
@@ -621,6 +746,7 @@ def generate_doubao_video(
                     time.sleep(poll)
                     continue
                 msgs = _messages(chain)
+                diagnostic = next((m["upstream_error"] for m in reversed(msgs) if m["bot"]), {})
                 was_accepted = accepted
                 accepted = accepted or any(m["bot"] and (m["generating"] or
                     not plain_chat_reply(m) and looks_like_accepted(m["text"])) for m in msgs)
@@ -639,6 +765,22 @@ def generate_doubao_video(
                 if reference_error and not accepted:
                     raise UpstreamReplyError("参考图不可用", reference_error,
                                              generation_started=False, allow_account_retry=False)
+                failed = final_failure(msgs)
+                if failed:
+                    key = (failed["index"], failed["code"])
+                    failure_seen = (key, failure_seen[1] + 1 if failure_seen[0] == key else 1)
+                    if failure_seen[1] >= 2:      # 同一条失败卡片连续两次读到才算终态
+                        reason = f"（{failed['reason']}）" if failed["reason"] else ""
+                        error = UpstreamGenerationFailed(
+                            failed["category"], (failed["text"][:1000] or "豆包视频工具返回失败") + reason,
+                            code=failed["code"], conversation_id=conversation_id,
+                            retryable=False, not_charged=failed["not_charged"])
+                        # 失败原因上游没有公开说明，换号重提可能再耗一份额度：直接结束，交给用户决定
+                        error.allow_account_retry = False
+                        error.generation_started = True
+                        raise error
+                else:
+                    failure_seen = (None, 0)
                 if reference_error:
                     _emit_note_text(on_poll, "豆包：参考图未被使用，只读取回已受理任务，不再确认或补做")
                     time.sleep(poll)
@@ -654,7 +796,15 @@ def generate_doubao_video(
                     text = m["text"]
                     seen_texts.append(text)
                     _emit_upstream_note(on_poll, dp, [text])
-                    if not accepted and plain_chat_reply(m):
+                    if wants_authorization(m) and not accepted and not failed:
+                        # 卡片原文带「侵权」「违反」字样：先于拒稿分类处理，不交给 AI 判断
+                        _confirm_authorization(dp, session, ctx, headers, conversation_id, msgs, m,
+                                               authorized=authorized, model=upstream_model,
+                                               duration=duration, ratio=ratio, images=images)
+                        authorized = True
+                        _emit_note_text(on_poll, "豆包：已确认素材授权卡，等待生成")
+                        continue
+                    if not accepted and not failed and plain_chat_reply(m):
                         label = reply_failure(text)
                         if label in ("内容拒绝", "肖像保护", "内容审核", "版权侵权"):
                             raise UpstreamReplyError(label, text[:1000],
@@ -662,7 +812,7 @@ def generate_doubao_video(
                         if label == "需要补充信息":
                             raise UpstreamReplyError(label, text[:1000],
                                                      generation_started=False, allow_account_retry=False)
-                        if confirms or creation_confirmation:
+                        if confirms or creation_confirmation or authorized:
                             raise TimeoutError(
                                 f"{account} 确认回复被普通对话接走，保留原会话核对，未重复提交：{text[:1000]}")
                         if any(row["creation"] or row["generating"] for row in msgs if row["bot"]):
@@ -707,7 +857,7 @@ def generate_doubao_video(
                         paid = True
                         _emit_note_text(on_poll, "豆包：免费额度已用完，已确认使用付费额度")
                         continue
-                    if (confirms or creation_confirmation) and plain_chat_reply(m):
+                    if (confirms or creation_confirmation or authorized) and plain_chat_reply(m):
                         raise TimeoutError(
                             f"{account} 确认回复被普通对话接走，保留原会话核对，未重复提交：{text[:1000]}")
                     if looks_like_accepted(text):
@@ -717,8 +867,10 @@ def generate_doubao_video(
                         continue
                     if looks_like_quota_exhausted(text):
                         raise DoubaoQuotaError(f"{account} 豆包额度不足：{text[:200]}")
-                    if accepted and dp.looks_like_generation_failure(text):
+                    if accepted and not failed and dp.looks_like_generation_failure(text):
                         raise UpstreamReplyError("上游生成失败", text[:1000], generation_started=True)
+                    if failed:
+                        continue              # 失败卡片不确认、不代答，下一轮复核后结束
                     if looks_like_confirm_request(text) and not accepted:
                         mismatch = confirm_mismatch(text, duration=duration, model_display=display, ratio=ratio)
                         if mismatch:
@@ -807,6 +959,9 @@ def generate_doubao_video(
             "credits_used": None,
             "credits_left": None,
         }
+    except Exception as exc:
+        upstream_error.attach(exc, diagnostic)
+        raise
     finally:
         session.close()
 
@@ -850,12 +1005,19 @@ def fetch_conversation_video(cookie_state_path, conversation_id: str, *, proxy: 
         if plain_chat:
             plan_unavailable = False
         # 停在确认 / 付费追问 / 模型锁 / 额度 / 拒稿上：没人回话就永远不会出片（也没扣额度），不用再盯
-        final = bool(reference_error) and not any(m["generating"] for m in msgs if m["bot"])
+        failed = final_failure(msgs)
+        if failed:
+            detail = f"fail_code={failed['code']}；{detail}"     # 放最前：落库时只截取开头
+        waiting_auth = wants_authorization(latest) and not any(m["generating"] for m in msgs if m["bot"])
+        if waiting_auth:
+            detail = f"停在素材授权确认，未生成；{detail}"
+        final = bool(failed) or waiting_auth or bool(reference_error) and not any(m["generating"] for m in msgs if m["bot"])
         final = final or bool(last) and (plain_chat or plan_unavailable or looks_like_model_locked(last) or looks_like_quota_exhausted(last)
                                 or looks_like_paid_prompt(last) or dp.looks_like_content_refusal(last)
                                 or (looks_like_confirm_request(last) and not looks_like_accepted(last)))
         return {"status": "failed" if final else "pending", "local_path": "", "final": final,
                 "detail": detail, "conversation_id": conversation_id,
-                "plan_unavailable": plan_unavailable}
+                "plan_unavailable": plan_unavailable,
+                **upstream_error.failure_fields(latest)}
     finally:
         session.close()

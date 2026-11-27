@@ -373,7 +373,14 @@ class SkillPage(Page):
         return target
 
     async def evaluate(self, script, args):
+        if 'list_user_and_featured' in script:      # 官方列表读不到：走技能菜单
+            return {"status": 0, "text": ""}
+        if script.startswith('(selector) => [...document') and 'setContent' in script:
+            return self.editor_ready()
         return self.selected if 'node-mention' in script else self.keys
+
+    def editor_ready(self):
+        return True
 
     @property
     def keyboard(self):
@@ -717,9 +724,20 @@ def test_cloak_goes_through_the_local_relay_for_socks_auth(monkeypatch):
         seen.update(kwargs)
         return "context"
     monkeypatch.setitem(sys.modules, "cloakbrowser", SimpleNamespace(launch_persistent_context_async=launch))
-    monkeypatch.setattr(agent, "http_proxy", lambda account: "http://127.0.0.1:9999")
+    monkeypatch.setattr(agent, "browser_proxy", lambda account: "http://127.0.0.1:9999")
     assert _run(agent._launch_cloak("acc1", "/tmp/x")) == "context"
     assert seen["proxy"] == {"server": "http://127.0.0.1:9999", "bypass": "*.upload"}
+    monkeypatch.setattr(agent, "browser_proxy", lambda account: None)      # 没绑定代理：直接用服务器网络
+    assert _run(agent._launch_cloak("acc1", "/tmp/x")) == "context"
+    assert seen["proxy"]["server"] is None
+
+    def disabled(account):
+        raise RuntimeError("账号绑定的代理已停用，禁止直连")
+    monkeypatch.setattr(agent, "browser_proxy", disabled)
+    seen.clear()
+    with pytest.raises(agent.PreSubmissionParametersError, match="已停用"):
+        _run(agent._launch_cloak("acc1", "/tmp/x"))
+    assert not seen
 
 
 def test_failed_chain_read_still_reports_progress(monkeypatch):
