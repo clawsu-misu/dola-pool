@@ -4,6 +4,9 @@
   python tools/login.py --web               网页界面：自动打开 http://127.0.0.1:<端口>/?token=...，全程点按钮
   python tools/login.py <账号名> [选项]      命令行
 
+网页上还有一块「短信验证码」：把买号时给的整行粘进去（号码----收码链接，例如 xsd20vip 的 /smsrecord），
+页面给出「复制号码」按钮（去掉 +1 区号），本机直接去读并把验证码显示出来，可手动刷新或每 3 秒自动刷新，不必再开一个浏览器窗口。
+
 打开本机浏览器访问 dola.com，你手动完成登录——Google / Apple / 手机号 / 任意方式都行，
 滑块、cookie 同意卡、区号下拉都直接用手点，工具不碰页面元素。检测到登录态（sessionid）后：
 
@@ -59,6 +62,11 @@ HTTP_TIMEOUT = 20
 PUSH_TIMEOUT = 240                    # 服务器导入 + 在线验证最长等 4 分钟
 SUPPORTED_REGIONS = ("JP", "KR")      # dola 只接受日本 / 韩国出口
 ACCOUNT_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
+SMS_URL_NAME = "sms-record.txt"          # 仓库根目录；/*.txt 已 gitignore，收码链接（含 token）不进仓库
+_SMS_EMPTY = {"no", "0", "false", "fail", "error", "none", "null"}
+_SMS_CODE_NEAR = re.compile(r"(?:验证码|校验码|驗證碼|code|otp|pin)\D{0,16}(\d{4,8})", re.I)
+_SMS_DATE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}:\d{2}(?::\d{2})?")
+_SMS_STANDALONE = re.compile(r"(?<!\d)(\d{4,8})(?!\d)")
 COOKIE_FIELDS = ("name", "value", "domain", "path", "expires", "secure", "httpOnly", "sameSite")
 
 
@@ -527,6 +535,126 @@ def fetch_1024_api(url):
     return f"{scheme}://{auth}{shown}:{node['port']}"
 
 
+def split_sms_source(text):
+    """输入框里的一行：`+18647089355----https://…/smsrecord?token=…`，只贴链接也行。返回 (号码, 链接)。"""
+    found = re.match(r"\s*(.*?)\s*-{4,}\s*(\S+)\s*$", text or "")
+    if not found:
+        return "", (text or "").strip()
+    return found.group(1).strip(), found.group(2)
+
+
+def public_sms_url(raw):
+    """收码链接只允许外部 http(s)。拒绝本机 / 内网，避免这个接口变成访问内网的跳板。"""
+    text = (raw or "").strip()
+    if not text:
+        raise ToolError("请先粘贴号码和收码链接")
+    if len(text) > 2000:
+        raise ToolError("收码链接太长")
+    parts = urlsplit(text)
+    host = (parts.hostname or "").lower().rstrip(".")
+    if parts.scheme not in ("http", "https") or not host or parts.username or parts.password:
+        raise ToolError("收码链接要以 http:// 或 https:// 开头，且不能带账号密码")
+    if host in {"localhost", "localhost.localdomain"} or host.endswith((".local", ".internal")):
+        raise ToolError("收码链接必须是外部网址，不能指向本机或内网")
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None and (ip.is_private or ip.is_loopback or ip.is_link_local
+                           or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+        raise ToolError("收码链接必须是外部网址，不能指向本机或内网")
+    return text
+
+
+def _pick_sms_code(body):
+    """从短信正文里取验证码。到期日、时分秒里的数字不算。"""
+    found = _SMS_CODE_NEAR.search(body)
+    if found:
+        return found.group(1)
+    nums = _SMS_STANDALONE.findall(_SMS_DATE.sub(" ", body))
+    six = [item for item in nums if len(item) == 6]
+    return (six or nums)[-1] if nums else ""
+
+
+def _parse_sms_line(line):
+    plain = " ".join(re.sub(r"<[^>]*>", " ", line).split())
+    status, body = "", plain
+    if "|" in plain:
+        status, body = plain.split("|", 1)
+        status, body = status.strip().lower(), body.strip()
+    code = ""
+    if status not in _SMS_EMPTY:
+        head, sep, tail = body.partition("|")
+        if sep and re.fullmatch(r"\d{4,8}", head.strip()):
+            code, body = head.strip(), (tail.strip() or body)
+        else:
+            code = _pick_sms_code(body)
+    return {"code": code, "text": body, "status": status}
+
+
+def parse_sms_record(text):
+    """解析收码站正文。xsd20vip 的 /smsrecord 是 `no|说明` 或 `yes|短信`，多条时取最后一条有码的。"""
+    raw = (text or "").replace("\r\n", "\n").strip()
+    if not raw:
+        return {"ok": True, "empty": True, "code": "", "text": "收码站没有返回内容", "status": ""}
+    parsed = [_parse_sms_line(line) for line in raw.split("\n") if line.strip()]
+    chosen = next((item for item in reversed(parsed) if item["code"]), parsed[-1])
+    return {"ok": True, "empty": not chosen["code"], "code": chosen["code"],
+            "text": chosen["text"], "status": chosen["status"]}
+
+
+def _sms_failure(exc):
+    from dola_pool.account_transport import redact_error
+    text = re.sub(r"(token=)[^&\s]+", r"\1***", redact_error(exc), flags=re.I)
+    text = re.sub(r"https?://\S+", "收码链接", text)
+    return "收码链接请求失败：" + " ".join(text.split())[:160]
+
+
+def fetch_sms_record(url, timeout=8):
+    """直接 HTTP 读取收码链接。不跟随跳转（跳到内网会绕过上面的检查），也不开浏览器。"""
+    target = public_sms_url(url)
+    try:
+        resp = requests.get(target, timeout=timeout, allow_redirects=False,
+                            headers={"User-Agent": "Mozilla/5.0"})
+    except requests.RequestException as exc:
+        raise ToolError(_sms_failure(exc)) from None
+    if 300 <= resp.status_code < 400:
+        raise ToolError("收码链接发生跳转，请填写最终地址")
+    if resp.status_code >= 400:
+        raise ToolError(f"收码链接返回 {resp.status_code}")
+    return parse_sms_record((resp.text or "")[:8000])
+
+
+def saved_sms_source():
+    """上次读过的那一行（号码----收码链接），存在当前目录的 sms-record.txt。从仓库根目录启动才能找到。"""
+    try:
+        text = Path(SMS_URL_NAME).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    lines = text.strip().splitlines()
+    source = lines[0].strip() if lines else ""
+    try:
+        public_sms_url(split_sms_source(source)[1])
+    except ToolError:
+        return ""
+    return source
+
+
+def sms_api(payload):
+    """页面把输入框里的整行发来：只拿链接去读，整行原样记住（下次打开连号码一起填回）。"""
+    source = _form_text(payload, "source")
+    try:
+        target = public_sms_url(split_sms_source(source)[1])
+        data = fetch_sms_record(target)
+    except ToolError as exc:
+        return 400, {"ok": False, "error": str(exc)}
+    try:
+        Path(SMS_URL_NAME).write_text(source + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    return 200, data
+
+
 def web_proxy_args(payload):
     """网页表单 → resolve_proxy 认的参数对象。1024 两种都不在这里重拼用户名。"""
     kind = _form_text(payload, "proxy_kind") or "local"
@@ -576,13 +704,15 @@ def serve(app, *, token, port=0):
                 return self._reply(200, json.dumps(app.status(), ensure_ascii=False))
             if path == "/api/ip":
                 return self._reply(200, json.dumps(public_ip(), ensure_ascii=False))
+            if path == "/api/sms-source":
+                return self._reply(200, json.dumps({"ok": True, "source": saved_sms_source()}, ensure_ascii=False))
             return self._reply(200, page, "text/html; charset=utf-8")
 
         def do_POST(self):
             if not self._authorized():
                 return self._reply(403, '{"ok": false, "error": "token 不正确"}')
             route = urlsplit(self.path).path
-            if route not in ("/api/start", "/api/push"):
+            if route not in ("/api/start", "/api/push", "/api/sms"):
                 return self._reply(404, '{"ok": false, "error": "接口不存在"}')
             try:
                 length = min(int(self.headers.get("Content-Length") or 0), 65536)
@@ -591,7 +721,10 @@ def serve(app, *, token, port=0):
                 return self._reply(400, '{"ok": false, "error": "请求体不是合法 JSON"}')
             if not isinstance(payload, dict):
                 return self._reply(400, '{"ok": false, "error": "请求体要是一个 JSON 对象"}')
-            code, data = app.start(payload) if route == "/api/start" else app.push(payload)
+            if route == "/api/sms":
+                code, data = sms_api(payload)
+            else:
+                code, data = app.start(payload) if route == "/api/start" else app.push(payload)
             self._reply(code, json.dumps(data, ensure_ascii=False))
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)

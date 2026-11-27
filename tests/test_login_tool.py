@@ -717,6 +717,75 @@ def test_public_ip_is_the_direct_address_for_the_whitelist(monkeypatch):
     assert login_tool.public_ip()["ok"] is False and login_tool.public_ip()["ip"] == ""
 
 
+def test_parse_sms_record_ignores_the_expiry_date_when_nothing_arrived():
+    """收码站没来信时整段是 no|到期说明。日期里的数字不能被当成验证码。"""
+    text = "no|该号将于2026-12-10 00:00:00到期，请立即换绑，如因逾期换绑的，后果自负！！！ 暂时未有邮件...试试重发吧."
+    got = login_tool.parse_sms_record(text)
+    assert got["ok"] is True and got["empty"] is True and got["code"] == ""
+    assert "暂时未有邮件" in got["text"] and "2026" not in got["code"]
+
+
+def test_parse_sms_record_reads_the_latest_code():
+    first = login_tool.parse_sms_record("yes|【Dola】验证码 654321，5分钟内有效。该号将于2026-12-10 00:00:00到期")
+    assert first["code"] == "654321" and first["empty"] is False
+    bare = login_tool.parse_sms_record("yes|654321|您的验证码是654321")
+    assert bare["code"] == "654321" and "您的验证码" in bare["text"]
+    latest = login_tool.parse_sms_record("yes|验证码111111\nyes|验证码222222")
+    assert latest["code"] == "222222"
+
+
+def test_sms_url_must_be_an_external_http_address():
+    assert login_tool.public_sms_url("https://sms.example/smsrecord?token=abc").startswith("https://")
+    for bad in ("", "file:///etc/passwd", "http://127.0.0.1/sms", "http://10.1.2.3/sms",
+                "http://192.168.1.9/sms", "http://user:pw@sms.example/x", "not a url"):
+        with pytest.raises(login_tool.ToolError):
+            login_tool.public_sms_url(bad)
+
+
+def test_split_sms_source_takes_the_number_off_the_front():
+    """输入框里是买号时给的整行：号码----收码链接。只贴链接也要能用。"""
+    line = "+18647089355----https://sms.example/smsrecord?token=abc"
+    assert login_tool.split_sms_source(line) == ("+18647089355", "https://sms.example/smsrecord?token=abc")
+    assert login_tool.split_sms_source(" +18647089355 ---- https://sms.example/smsrecord?token=abc ") == (
+        "+18647089355", "https://sms.example/smsrecord?token=abc")
+    assert login_tool.split_sms_source("https://sms.example/smsrecord?token=abc") == (
+        "", "https://sms.example/smsrecord?token=abc")
+    assert login_tool.split_sms_source("") == ("", "")
+
+
+def test_web_sms_endpoint_fetches_and_remembers_without_opening_a_browser(web, monkeypatch):
+    """验证码由本机 HTTP 去读，页面只拿解析结果；整行写在当前目录，测试的临时目录不会碰到真链接。"""
+    seen = {}
+
+    def get(url, timeout=8, allow_redirects=True, headers=None):
+        seen["url"] = url
+        seen["redirects"] = allow_redirects
+        return SimpleNamespace(status_code=200, text="yes|验证码 654321，该号将于2026-12-10到期")
+
+    monkeypatch.setattr(login_tool.requests, "get", get)
+    line = "+18647089355----https://sms.example/smsrecord?token=secret"
+    assert json.loads(web.call("GET", "/api/sms-source")[1]) == {"ok": True, "source": ""}
+    assert web.call("GET", "/api/sms-source", token="")[0] == 403
+    code, body = web.call("POST", "/api/sms", {"source": line})
+    assert code == 200
+    assert json.loads(body)["code"] == "654321"
+    link = "https://sms.example/smsrecord?token=secret"
+    assert seen["url"] == link and seen["redirects"] is False          # 只请求链接，不带号码
+    assert json.loads(web.call("GET", "/api/sms-source")[1])["source"] == line
+    assert web.call("POST", "/api/sms", {"source": "https://sms.example/x"}, token="")[0] == 403
+    code, body = web.call("POST", "/api/sms", {"source": "+18647089355----http://127.0.0.1/sms"})
+    assert code == 400 and "外部" in body.decode()
+
+    def explode(url, timeout=8, allow_redirects=True, headers=None):
+        raise login_tool.requests.RequestException("timed out https://sms.example/smsrecord?token=secret")
+
+    monkeypatch.setattr(login_tool.requests, "get", explode)
+    code, body = web.call("POST", "/api/sms", {"source": line})
+    assert code == 400 and b"secret" not in body and "收码链接" in body.decode()
+    # 链接不合法或读失败，都不覆盖上一次读成功的那一行
+    assert (web.tmp_path / "sms-record.txt").read_text(encoding="utf-8").strip() == line
+
+
 def test_web_ip_endpoint_is_token_gated(web, monkeypatch):
     monkeypatch.setattr(login_tool, "public_ip", lambda timeout=8: {"ok": True, "ip": "203.0.113.9"})
     assert web.call("GET", "/api/ip", token="")[0] == 403
@@ -853,6 +922,7 @@ navigator.clipboard = {writeText: async text => { globalThis.copiedIp = text; }}
 const calls = [];
 const queue = {
   '/api/status': [{status: 200, body: {status: 'idle', lines: []}}],
+  '/api/sms-source': [{status: 200, body: {ok: true, source: ''}}],
   '/api/ip': [{status: 200, body: {ok: true, ip: '203.0.113.8'}}],
   '/api/start': [{status: 200, body: {ok: true}}],
   '/api/push': [{status: 200, body: {ok: true, message: '已导入，服务器在线验证通过'}}],
@@ -871,7 +941,10 @@ globalThis.clearTimeout = () => {};
 
 PAGE_CHECKS = r'''
   await tick(); await tick();
-  assert.deepEqual(calls.splice(0), [{path: '/api/status', method: 'GET', headers: {'X-Token': 'tok-9'}}]);
+  assert.deepEqual(calls.splice(0), [
+    {path: '/api/status', method: 'GET', headers: {'X-Token': 'tok-9'}},
+    {path: '/api/sms-source', method: 'GET', headers: {'X-Token': 'tok-9'}},
+  ]);
   radios[1].checked = true; radios[0].checked = false; radios[1].handlers.change();
   await tick(); await tick();
   assert.deepEqual([el('#box_p1024').hidden, el('#box_p1024api').hidden, el('#box_url').hidden, el('#local_hint').hidden],
@@ -951,6 +1024,71 @@ PAGE_CHECKS = r'''
   assert.equal(el('#pushBanner').className, 'banner');
   assert.equal(el('#pushBanner').textContent, '');
   timers.length = 0;
+
+  // 收码：粘贴「号码----收码链接」整行 → 出现「复制号码」→ 读码；自动刷新再排一次
+  calls.splice(0);
+  const line = '+18647089355----https://sms.example/smsrecord?token=abc';
+  el('#smsSource').value = line;
+  el('#smsSource').handlers.input();
+  assert.equal(el('#smsDial').hidden, false);
+  assert.equal(el('#smsDial').textContent, '复制号码 8647089355');   // 登录页区号单独选，只要 +1 后面十位
+  assert.equal(el('#smsCode').textContent, '尚未读取');
+  el('#smsAuto').checked = true;
+  queue['/api/sms'] = [{status: 200, body: {ok: true, empty: false, code: '654321', text: '验证码 654321', status: 'yes'}}];
+  await el('#smsRefresh').handlers.click();
+  await tick();
+  assert.deepEqual(calls.splice(0), [{path: '/api/sms', method: 'POST', headers: {'X-Token': 'tok-9',
+    'Content-Type': 'application/json'}, body: {source: line}}]);
+  assert.equal(el('#smsCode').textContent, '654321');
+  assert.equal(el('#smsCode').className, '');
+  assert.equal(el('#smsCopy').disabled, false);
+  assert.equal(timers.length, 1);
+  await el('#smsCopy').handlers.click();
+  await tick();
+  assert.equal(globalThis.copiedIp, '654321');
+  await el('#smsDial').handlers.click();
+  await tick();
+  assert.equal(globalThis.copiedIp, '8647089355');
+  assert.equal(el('#smsDial').textContent, '已复制 8647089355');
+
+  // 读取期间换了号：旧号的回应不画，改读新号
+  const realFetch = globalThis.fetch;
+  const waiting = [];
+  globalThis.fetch = (path, init) => new Promise(resolve => waiting.push({resolve, init}));
+  const older = '+18647089356----https://sms.example/smsrecord?token=def';
+  const newer = '+18647089357----https://sms.example/smsrecord?token=ghi';
+  el('#smsSource').value = older;
+  el('#smsSource').handlers.input();
+  const changed = el('#smsSource').handlers.change();
+  assert.equal(waiting.length, 1);
+  assert.equal(JSON.parse(waiting[0].init.body).source, older);
+  el('#smsSource').value = newer;
+  el('#smsSource').handlers.input();
+  waiting[0].resolve({ok: true, status: 200, json: async () => ({ok: true, empty: false, code: '111111', text: '旧号'})});
+  await tick();
+  assert.equal(waiting.length, 2);
+  assert.equal(JSON.parse(waiting[1].init.body).source, newer);
+  assert.equal(el('#smsCode').textContent, '尚未读取');
+  waiting[1].resolve({ok: true, status: 200, json: async () => ({ok: true, empty: false, code: '222222', text: '新号'})});
+  await changed;
+  assert.equal(el('#smsCode').textContent, '222222');
+  globalThis.fetch = realFetch;
+
+  // 只贴链接、没有号码：不出「复制号码」
+  el('#smsSource').value = 'https://sms.example/smsrecord?token=abc';
+  el('#smsSource').handlers.input();
+  assert.equal(el('#smsDial').hidden, true);
+
+  // 重开页面：记住的整行自动填回，「复制号码」直接可用
+  el('#smsSource').value = '';
+  queue['/api/sms-source'].push({status: 200, body: {ok: true, source: line}});
+  queue['/api/sms'].push({status: 200, body: {ok: true, empty: true, code: '', text: '暂时未有邮件'}});
+  await loadSmsSource();
+  assert.equal(el('#smsSource').value, line);
+  assert.equal(el('#smsDial').hidden, false);
+  assert.equal(el('#smsDial').textContent, '复制号码 8647089355');
+  assert.equal(el('#smsCode').textContent, '暂无验证码');
+  assert.equal(el('#smsCopy').textContent, '复制验证码');             // 换了号，上一个「已复制」不作数
 '''
 
 
