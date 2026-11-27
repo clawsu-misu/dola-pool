@@ -1,5 +1,15 @@
 # 更新日志
 
+## 2.9.6 — 2026-11-27
+
+### 修复
+
+- Python 3.10 服务器上点验证报「验证失败（服务器异常）: module 'asyncio' has no attribute 'timeout'」：项目声明支持 Python 3.10，但验证、你好探测、参数选择、任务超时都直接用了 3.11 才有的 `asyncio.timeout`，3.10 上一进来就 `AttributeError`。新增 `dola_pool/async_compat.py`，3.11+ 走标准库，3.10 用等价实现（到点抛 `TimeoutError`，支持 `reschedule` / `expired`），5 个调用点改走兼容层，行为在 3.11+ 不变。
+
+### 部署
+
+- `deploy/install.sh` 会在系统只有 Python 3.10 时用 uv 装一个独立的 3.12 到 `/opt/dola-python`（不动系统 Python），旧虚拟环境的解释器版本不一致时自动重建；装不上仍退回 3.10，靠兼容层正常运行。升级到本版后重新执行一次安装脚本即可。
+
 ## 2.9.5 — 2026-11-27
 
 ### 新增
