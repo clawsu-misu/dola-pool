@@ -1,6 +1,7 @@
 """面板一键更新（app 侧）：版本检查、请求校验、排空与放行、超时放弃、取消，以及派单关卡和 owner 权限。"""
 import asyncio
 import json
+import sys
 import time
 
 import pytest
@@ -70,6 +71,31 @@ def test_request_requires_agent_newer_and_latest(upd):
     assert request["state"] == "draining" and request["tag"] == "v2.6.5" and updater.draining()
     with pytest.raises(updater.UpdateError, match="已经有一个更新"):
         updater.request_update("2.6.5", "2.6.4", "admin", LATEST)
+
+
+def test_rerun_allows_the_current_version_to_rebuild_the_runtime(upd):
+    """版本已是最新时，rerun 允许再跑一次更新程序（面板「升级运行环境」）。"""
+    install_agent(upd)
+    with pytest.raises(updater.UpdateError, match="不需要更新"):
+        updater.request_update("2.6.5", "2.6.5", "admin", LATEST)
+    request = updater.request_update("2.6.5", "2.6.5", "admin", LATEST, rerun=True)
+    assert request["rerun"] is True and request["version"] == "2.6.5" and updater.draining()
+    assert "运行环境" in request["message"]
+    updater._remove("ready", "request.json")
+
+
+def test_rerun_is_refused_for_docker_deploys(upd, monkeypatch):
+    monkeypatch.setattr(config, "DEPLOY_MODE", "docker")
+    install_agent(upd, "docker", heartbeat_at=time.time())
+    with pytest.raises(updater.UpdateError, match="随镜像走"):
+        updater.request_update("2.6.5", "2.6.5", "admin", LATEST, rerun=True)
+
+
+def test_runtime_reports_python_and_whether_it_can_be_upgraded(upd, monkeypatch):
+    runtime = updater.runtime_info()
+    assert runtime["python"] and runtime["upgradable"] == (sys.version_info[:2] < (3, 11))
+    monkeypatch.setattr(config, "DEPLOY_MODE", "docker")
+    assert updater.runtime_info()["upgradable"] is False
 
 
 def test_docker_agent_needs_a_recent_heartbeat(upd, monkeypatch):

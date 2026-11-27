@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -30,6 +31,7 @@ from dola_pool import config
 
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 TERMINAL = ("done", "failed", "rolled_back")
+PY_MIN = (3, 11)
 _LATEST_CACHE: dict = {"at": 0.0, "data": None, "error": ""}
 
 
@@ -137,21 +139,30 @@ def draining() -> bool:
     return bool(request and request.get("state") in ("draining", "ready"))
 
 
-def request_update(version: str, current_version: str, user: str, latest: dict) -> dict:
+def request_update(version: str, current_version: str, user: str, latest: dict,
+                   rerun: bool = False) -> dict:
     if not parse_version(version):
         raise UpdateError("版本号格式应为 X.Y.Z")
     if version != latest.get("version"):
         raise UpdateError(f"只能更新到 GitHub 上的最新正式版 {latest.get('version') or '（未获取到）'}")
-    if not is_newer(version, current_version):
+    same = version == current_version
+    # rerun：版本已是最新但运行环境要重装（例如虚拟环境还停在 Python 3.10），再跑一次更新程序
+    if not is_newer(version, current_version) and not (rerun and same):
         raise UpdateError(f"当前已是 {current_version}，不需要更新到 {version}")
     agent = agent_info()
     if not agent["ready"]:
         raise UpdateError(f"不能自动更新：{agent['reason']}")
+    if rerun and agent["mode"] != "source":
+        raise UpdateError("Docker 部署的运行环境随镜像走，不需要单独重装")
     if draining():
         raise UpdateError("已经有一个更新在进行")
+    message = ("暂停派新单，等正在生成的任务完成" if not same
+               else "暂停派新单，等任务完成后重建运行环境并重启")
     request = {"id": uuid.uuid4().hex[:12], "version": version, "tag": f"v{version}", "state": "draining",
                "from_version": current_version, "requested_at": time.time(), "requested_by": user,
-               "ready_at": None, "message": "暂停派新单，等正在生成的任务完成"}
+               "ready_at": None, "message": message}
+    if same:
+        request["rerun"] = True
     _remove("ready")
     _write("request.json", request)
     return request
@@ -216,4 +227,11 @@ def status() -> dict:
     else:
         newest = max((agent_status, last), key=lambda x: float(x.get("updated_at") or x.get("at") or 0))
         progress = newest if newest else {}
-    return {"request": request, "progress": progress, "agent": agent_info(), "mode": deploy_mode()}
+    return {"request": request, "progress": progress, "agent": agent_info(), "mode": deploy_mode(),
+            "runtime": runtime_info()}
+
+
+def runtime_info() -> dict:
+    """当前进程用的解释器；源码部署下 3.11 以下提示可以一键升级运行环境。"""
+    cur = ".".join(str(x) for x in sys.version_info[:3])
+    return {"python": cur, "upgradable": deploy_mode() == "source" and sys.version_info[:2] < PY_MIN}

@@ -242,3 +242,25 @@ def test_update_still_succeeds_when_no_newer_python_is_available(tmp_path):
     assert version_of(app) == "1.1.0"
     assert (venv / "marker-old").exists()                       # 原 venv 原样保留
     assert agent_status(tmp_path)["state"] == "done"
+
+
+def test_rerun_rebuilds_the_runtime_without_fetching_code(tmp_path):
+    """面板「升级运行环境」：版本不变（FROM == TO），不下载代码，只重建 venv 后重启。"""
+    origin = make_origin(tmp_path)
+    app = git_app(tmp_path, origin)
+    venv = old_venv(app)
+    stub = tmp_path / "stub"
+    stub.mkdir(exist_ok=True)
+    (stub / "fake_pip").write_text("#!/bin/bash\nexit 0\n")
+    (stub / "fake_pip").chmod(0o755)
+    fake_python(stub, "python3.12", "3.12")
+    env = make_env(tmp_path, app, origin, PATH=f"{stub}:{os.environ['PATH']}")
+    (tmp_path / "update" / "request.json").write_text(json.dumps({"id": "req1", "version": "1.0.0", "rerun": True}))
+    result = run_updater(env)
+    status = agent_status(tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert status["state"] == "done" and "运行环境" in status["message"] and "3.12" in status["message"]
+    assert version_of(app) == "1.0.0"                             # 代码版本没动
+    assert not (venv / "marker-old").exists()                     # venv 换到了 3.12
+    assert "3.12" in (venv / "bin" / "python").read_text()
+    assert (tmp_path / "systemctl.log").read_text().count("restart fake") == 1

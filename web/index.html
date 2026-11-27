@@ -1409,7 +1409,7 @@ function renderNotes(md){
   return out.join('');
 }
 function renderUpdate(info){
-  const latest=info.latest||{},agent=info.agent||{},req=info.request;
+  const latest=info.latest||{},agent=info.agent||{},req=info.request,rt=info.runtime||{};
   const running=!!req;
   const modeText=info.mode==='docker'?'Docker 部署':'源码部署';
   let action='';
@@ -1423,16 +1423,19 @@ function renderUpdate(info){
       :`<p class="hint">不能自动更新：${noTr(agent.reason||'')}</p>`
         +(info.mode==='docker'?'<p class="hint">手动更新：在 docker-compose.yml 所在目录执行 docker compose pull && docker compose up -d</p>'
           :'<p class="hint">安装更新程序：sudo bash deploy/install-updater.sh</p>');
+  }else if(rt.upgradable&&latest.version&&agent.ready){
+    action=`<button class="btn btn-p" onclick="startUpdate('${esc(latest.version)}',true)">升级运行环境</button>`;
   }
   showDlg(`<h2 data-dlg="update">版本</h2>
     <p class="hint">当前版本 <strong translate="no">v${esc(info.current)}</strong> · <span>${modeText}</span>
       · 最新正式版 <strong translate="no">${latest.version?'v'+esc(latest.version):'—'}</strong>
       ${latest.published_at?`<span class="tiny" translate="no">（${esc(latest.published_at.slice(0,10))}）</span>`:''}</p>
+    ${rt.python?`<p class="hint">运行环境 <span translate="no">Python ${esc(rt.python)}</span>${rt.upgradable?'（建议升级到 3.11 以上）':''}</p>`:''}
     ${latest.error?`<p class="hint">查询 GitHub 失败：${noTr(latest.error)}</p>`:''}
     ${!info.available&&!running&&latest.version?'<p class="hint">已是最新版本。</p>':''}
     ${updateProgressHtml(info)}
     ${info.available&&latest.notes?`<div class="upd-notes" translate="no">${renderNotes(latest.notes)}</div>`:''}
-    ${info.available&&!running?'<p class="hint">更新时会暂停派新单，等正在生成的任务完成后再换版本并重启（约 1～3 分钟）；新提交的任务排队等待，更新后自动继续。更新前自动备份代码和数据库，失败自动回滚。</p>':''}
+    ${(info.available||action.includes('升级运行环境'))&&!running?'<p class="hint">更新时会暂停派新单，等正在生成的任务完成后再换版本并重启（约 1～3 分钟）；新提交的任务排队等待，更新后自动继续。更新前自动备份代码和数据库，失败自动回滚。</p>':''}
     <div class="row">${action}
       <a class="btn" href="${PROJECT_URL}" target="_blank" rel="noopener" aria-label="GitHub 项目"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:15px;height:15px;fill:currentColor"><path d="M12 2.5a9.5 9.5 0 0 0-3 18.52c.48.09.65-.21.65-.46v-1.67c-2.65.58-3.21-1.12-3.21-1.12-.44-1.1-1.07-1.4-1.07-1.4-.87-.59.07-.58.07-.58.96.07 1.47.99 1.47.99.86 1.47 2.25 1.05 2.8.8.09-.62.34-1.05.61-1.29-2.12-.24-4.35-1.06-4.35-4.72 0-1.04.37-1.89.98-2.56-.1-.24-.43-1.21.09-2.52 0 0 .8-.26 2.62.98a9.14 9.14 0 0 1 4.77 0c1.82-1.24 2.62-.98 2.62-.98.52 1.31.19 2.28.09 2.52.61.67.98 1.52.98 2.56 0 3.67-2.23 4.48-4.36 4.72.35.3.65.87.65 1.75v2.59c0 .25.17.55.66.46A9.5 9.5 0 0 0 12 2.5Z"/></svg>GitHub 项目</a>
       ${latest.url?`<a class="btn" href="${esc(latest.url)}" target="_blank" rel="noopener">发布说明</a>`:''}
@@ -1448,9 +1451,11 @@ async function checkUpdateNow(){
   try{UPDATE_INFO=await api('/api/admin/update/check',{method:'POST'});updateBadge(UPDATE_INFO);renderUpdate(UPDATE_INFO);}
   catch(e){if(e.message!=='unauthorized')alert(dialogText`${e.message}`);}
 }
-async function startUpdate(version){
-  if(!await confirm(dialogText`更新到 v${version}？会暂停派新单，等正在生成的任务完成后重启服务，失败自动回滚。`))return;
-  try{UPDATE_INFO=await api('/api/admin/update',{method:'POST',body:{version}});renderUpdate(UPDATE_INFO);hide('dlg');watchUpdate();}
+async function startUpdate(version,rerun){
+  const tip=rerun?`重建运行环境到 Python 3.11 以上并重启服务（版本不变）。会暂停派新单，等正在生成的任务完成，失败自动回滚。`
+    :`更新到 v${version}？会暂停派新单，等正在生成的任务完成后重启服务，失败自动回滚。`;
+  if(!await confirm(dialogText`${tip}`))return;
+  try{UPDATE_INFO=await api('/api/admin/update',{method:'POST',body:{version,rerun:!!rerun}});renderUpdate(UPDATE_INFO);hide('dlg');watchUpdate();}
   catch(e){if(e.message!=='unauthorized')alert(dialogText`${e.message}`);}
 }
 async function cancelUpdate(){

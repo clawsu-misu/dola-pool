@@ -2145,6 +2145,7 @@ async def _update_payload(force: bool = False) -> dict:
 
 class UpdateRequest(BaseModel):
     version: str
+    rerun: bool = False
 
 
 @app.get("/api/admin/update")
@@ -2161,13 +2162,17 @@ async def admin_update_check(x_admin_key: str | None = Header(default=None)):
 
 @app.post("/api/admin/update")
 async def admin_update_start(body: UpdateRequest, x_admin_key: str | None = Header(default=None)):
-    """排空后由外部更新程序换版本、重启、验证，失败自动回滚。只能更新到 GitHub 最新正式版。"""
+    """排空后由外部更新程序换版本、重启、验证，失败自动回滚。只能更新到 GitHub 最新正式版。
+
+    rerun=true 表示版本已是最新、只想重装运行环境（例如把虚拟环境从 Python 3.10 换到 3.12）。
+    """
     user = _require_owner(x_admin_key)
     latest = await updater.latest_release(force=True)
     if latest.get("error") and not latest.get("version"):
         raise HTTPException(502, f"查不到最新版本：{latest['error']}")
     try:
-        updater.request_update(body.version.strip().lstrip("vV"), APP_VERSION, user, latest)
+        updater.request_update(body.version.strip().lstrip("vV"), APP_VERSION, user, latest,
+                               rerun=body.rerun)
     except updater.UpdateError as exc:
         raise HTTPException(409, str(exc)) from exc
     return await _update_payload()
