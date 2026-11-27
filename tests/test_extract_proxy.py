@@ -105,6 +105,17 @@ def test_ttl_without_sessiontime_uses_default(monkeypatch):
     assert nodes[0]["ttl"] == 120
 
 
+def test_parse_json_array_body():
+    """json 返回：[{host, port}, ...]，凭据可有可无（白名单鉴权的接口没有账号密码）。"""
+    nodes = proxy_store.parse_extract_lines(
+        '[{"host":"105.33.13.23","port":"8080"},'
+        '{"host":"1.2.3.4","port":9000,"username":"u","password":"p"}]')
+    assert [(n["host"], n["port"], n["username"], n["password"]) for n in nodes] == [
+        ("105.33.13.23", 8080, "", ""),
+        ("1.2.3.4", 9000, "u", "p"),
+    ]
+
+
 # ===== 建记录 =====
 
 def test_extract_requires_url():
@@ -142,6 +153,20 @@ def test_fetch_records_error_on_failure(tmp_path, monkeypatch):
     r = proxy_store.fetch_extract_nodes(pid)
     assert r["ok"] is False and "network down" in r["error"]
     assert proxy_store.get_proxy(pid)["extract_last_error"]
+
+
+def test_generic_extract_does_not_read_vendor_params(tmp_path, monkeypatch):
+    """通用节点池不认服务商细节：链接里的 time= 不是有效期来源（1024Proxy 走专用流程，见 test_proxy_1024）。
+    返回里没有 sessiontime 的节点仍按默认有效期算。"""
+    monkeypatch.setenv("DOLA_EXTRACT_NODE_TTL", "240")
+    pid = _mk_extract(
+        url="https://api.example.com/get?time=10&num=1")["id"]
+    _stub_extract(monkeypatch, "105.33.13.23:8080\r\n")
+    assert proxy_store.fetch_extract_nodes(pid)["added"] == 1
+    node = proxy_store.list_nodes(pid)[0]
+    assert 200 < node["expires_at"] - time.time() <= 240
+    assert proxy_store.get_proxy(pid)["provider"] == ""
+    assert proxy_store.get_proxy(pid)["provider_settings"] == {}
 
 
 def test_accounts_get_distinct_nodes(tmp_path, monkeypatch):
@@ -243,7 +268,8 @@ def test_rotate_on_risk_disabled_for_extract(tmp_path, monkeypatch):
     _stub_extract(monkeypatch)
     proxy_store.set_account_proxy("acc1", pid)
     proxy_store.proxy_url_for("acc1")
-    assert proxy_store.rotate_account_session("acc1", force=True) is None
+    assert proxy_store.rotate_account_session("acc1") is None          # 自动轮换关闭
+    assert proxy_store.rotate_account_session("acc1", force=True)      # 面板手动换 IP 不受开关影响
 
 
 def test_rotate_min_interval_blocks_auto_but_not_manual(tmp_path, monkeypatch):

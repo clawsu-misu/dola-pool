@@ -36,6 +36,7 @@ from dola_pool import cred_store
 from dola_pool import failure_text
 from dola_pool.account_transport import http_proxy, redact_error
 from dola_pool import proxy_store
+from dola_pool import proxy_1024
 from dola_pool import sites
 from dola_pool import updater
 from dola_pool import upscale
@@ -2876,6 +2877,29 @@ class ProxyUpdate(BaseModel):
     extract_interval: int | None = Field(None, ge=0)
 
 
+class Proxy1024In(BaseModel):
+    """1024Proxy 专用记录（与通用添加代理分开的独立流程，见 proxy_1024.py）。
+
+    kind=tunnel 账密隧道（gateway / username / password / ttl），
+    kind=api API 提取（link / num / time）。PATCH 时为 None 的字段保持不变，密码留空 = 沿用原密码。
+    """
+    kind: str | None = None
+    name: str | None = None
+    protocol: str | None = None
+    remark: str | None = None
+    # 两种接入方式共用：出口地区，只能是 JP / KR
+    region: str | None = None
+    # 账密隧道
+    gateway: str | None = None
+    username: str | None = None
+    password: str | None = None
+    ttl: int | None = None
+    # API 提取
+    link: str | None = None
+    num: int | None = None
+    time: int | None = None
+
+
 class ProxyNodesIn(BaseModel):
     # 手工粘贴的节点：一行一个 host:port:user:pass（兼容 user:pass@host:port 等）
     text: str = ""
@@ -3913,6 +3937,40 @@ async def admin_proxy_update(proxy_id: str, body: ProxyUpdate,
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     try:
         updated = update_proxy(proxy_id, **fields)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not updated:
+        raise HTTPException(404, "proxy not found")
+    return {"updated": updated}
+
+
+@app.post("/api/admin/proxies/1024")
+async def admin_proxy_create_1024(body: Proxy1024In,
+                                  x_admin_key: str | None = Header(default=None)):
+    """1024Proxy 专用流程：新建账密隧道 / API 提取记录。"""
+    _admin_auth(x_admin_key)
+    try:
+        created = proxy_1024.create(**body.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"created": created}
+
+
+@app.get("/api/admin/proxies/1024/public-ip")
+async def admin_proxy_1024_public_ip(refresh: bool = False,
+                                     x_admin_key: str | None = Header(default=None)):
+    """本机公网 IP，给 1024 API 白名单复制用。认的是服务器出口，不是打开面板的浏览器。"""
+    _admin_auth(x_admin_key)
+    return await asyncio.to_thread(proxy_1024.server_public_ip, refresh=refresh)
+
+
+@app.patch("/api/admin/proxies/{proxy_id}/1024")
+async def admin_proxy_update_1024(proxy_id: str, body: Proxy1024In,
+                                  x_admin_key: str | None = Header(default=None)):
+    """改一条 1024Proxy 专用记录（为 None 的字段保持不变）。"""
+    _admin_auth(x_admin_key)
+    try:
+        updated = proxy_1024.update(proxy_id, **body.model_dump())
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     if not updated:

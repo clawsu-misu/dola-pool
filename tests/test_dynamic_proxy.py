@@ -142,6 +142,7 @@ def test_rotate_on_risk_can_be_disabled():
     pid = _mk_dynamic(rotate_min_interval=0, rotate_on_risk=False)["id"]
     proxy_store.set_account_proxy("acc1", pid)
     assert proxy_store.rotate_account_session("acc1") is None
+    assert proxy_store.rotate_account_session("acc1", force=True)   # 面板手动换 IP 不受开关影响
 
 
 def test_rotate_is_noop_for_static_proxy():

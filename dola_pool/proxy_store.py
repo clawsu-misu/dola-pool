@@ -13,9 +13,14 @@
 - dynamic → ``scheme://host:port#<session>``，各号互不干扰，
   所以共用同一个旋转网关也不会被同出口隔离误伤。
 
+服务商专用流程（proxies.provider，目前只有 1024Proxy，见 proxy_1024.py）：记录仍存在同一张
+表、走同一套绑定 / 换 IP / 探测通道，只是取隧道用户名、提取节点、换节点这三处按 provider
+分派给专用模块。本文件里的通用分支不含任何服务商细节。
+
 浏览器每次启动/验证账号前通过 browser.py 查账号对应的代理；
 未给账号指定代理时回落到 config.DOLA_PROXY（环境默认代理）。
 """
+import json
 import os
 import re
 import secrets
@@ -25,7 +30,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from dola_pool import config
+from dola_pool import config, proxy_1024
 
 DB_PATH = Path(config.POOL_DB_PATH if hasattr(config, "POOL_DB_PATH") else "pool_usage.db")
 
@@ -155,10 +160,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "extract_last_at": "REAL NOT NULL DEFAULT 0",
         "extract_last_count": "INTEGER NOT NULL DEFAULT 0",
         "extract_last_error": "TEXT DEFAULT ''",
+        # 服务商专用流程：provider 标记走哪套专用流程，settings 存它的专用参数（JSON）
+        "provider": "TEXT NOT NULL DEFAULT ''",
+        "settings": "TEXT NOT NULL DEFAULT ''",
     }
     for name, ddl in wanted.items():
         if name not in cols:
             conn.execute(f"ALTER TABLE proxies ADD COLUMN {name} {ddl}")
+    if "provider" not in cols:
+        # 第一次引入 provider 列（每个库一次）：旧版用预设建的 1024Proxy 记录
+        # 认领成专用记录，之后走专用流程
+        proxy_1024.tag_legacy_records(conn)
     scols = {row["name"] for row in conn.execute("PRAGMA table_info(proxy_sessions)")}
     if "node_id" not in scols:
         conn.execute("ALTER TABLE proxy_sessions ADD COLUMN node_id INTEGER DEFAULT 0")
@@ -168,6 +180,12 @@ def _safe_dict(row: sqlite3.Row, with_password: bool = False) -> dict:
     data = dict(row)
     data.setdefault("mode", "static")
     data["is_dynamic"] = data.get("mode") == "dynamic"
+    # 服务商专用参数（JSON 列）解析成字典给专用模块和面板用
+    try:
+        saved = json.loads(data.get("settings") or "")
+    except ValueError:
+        saved = None
+    data["provider_settings"] = saved if isinstance(saved, dict) else {}
     if not with_password:
         data["has_password"] = bool(data.get("password"))
         data.pop("password", None)
@@ -213,7 +231,9 @@ def create_proxy(name: str, protocol: str, host: str, port: int,
                  rotate_min_interval: int | None = None,
                  extract_url: str = "",
                  extract_interval: int = 0,
-                 nodes_text: str = "") -> dict:
+                 nodes_text: str = "",
+                 provider: str = "",
+                 settings: dict | None = None) -> dict:
     name = (name or "").strip()
     protocol = (protocol or "http").strip().lower()
     host = (host or "").strip()
@@ -252,13 +272,14 @@ def create_proxy(name: str, protocol: str, host: str, port: int,
             """INSERT INTO proxies
                 (id, name, protocol, host, port, username, password, remark, enabled,
                  created_at, mode, session_template, sticky_ttl, rotate_on_risk,
-                 rotate_min_interval, extract_url, extract_interval)
-                VALUES (?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?)""",
+                 rotate_min_interval, extract_url, extract_interval, provider, settings)
+                VALUES (?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?)""",
             (proxy_id, name, protocol, host, int(port or 0),
               username or "", password or "", remark or "", time.time(),
               mode, (session_template or "").strip(), ttl,
               1 if rotate_on_risk else 0, min_interval,
-              (extract_url or "").strip(), int(extract_interval or 0)),
+              (extract_url or "").strip(), int(extract_interval or 0),
+              provider or "", json.dumps(settings or {}, ensure_ascii=False)),
         )
         conn.commit()
     except sqlite3.IntegrityError as exc:
@@ -281,7 +302,7 @@ def update_proxy(proxy_id: str, *, name=None, protocol=None, host=None,
                  enabled=None, mode=None, session_template=None,
                  sticky_ttl=None, rotate_on_risk=None,
                  rotate_min_interval=None, extract_url=None,
-                 extract_interval=None) -> dict:
+                 extract_interval=None, settings: dict | None = None) -> dict:
     fields = []
     values = []
     if name is not None:
@@ -332,6 +353,9 @@ def update_proxy(proxy_id: str, *, name=None, protocol=None, host=None,
     if rotate_min_interval is not None:
         fields.append("rotate_min_interval=?")
         values.append(int(rotate_min_interval))
+    if settings is not None:
+        fields.append("settings=?")
+        values.append(json.dumps(settings, ensure_ascii=False))
     if not fields:
         return get_proxy(proxy_id) or {}
     conn = _connect()
@@ -521,6 +545,15 @@ def render_session_username(template: str, base_user: str, session: str) -> str:
     return out.strip("-_. ")
 
 
+def _session_username(info: dict, session: str) -> str:
+    """隧道用户名：服务商专用记录按各自的专用规则拼，其余按记录里的模板拼。"""
+    if proxy_1024.is_1024(info):
+        return proxy_1024.tunnel_username(info, session)
+    return render_session_username(
+        info.get("session_template") or "", info.get("username") or "", session
+    )
+
+
 def _url_from_record(info: dict, username: str | None = None) -> str:
     user = info.get("username") if username is None else username
     auth = ""
@@ -562,10 +595,7 @@ def proxy_url_for(account: str, *, rotate: bool = False) -> str:
     if mode != "dynamic":
         return _url_from_record(info)
     session = _ensure_session(account, info, rotate=rotate)
-    username = render_session_username(
-        info.get("session_template") or "", info.get("username") or "", session
-    )
-    return _url_from_record(info, username)
+    return _url_from_record(info, _session_username(info, session))
 
 
 def _upgrade_socks_dns(url: str) -> str:
@@ -614,8 +644,8 @@ def rotate_account_session(account: str, *, reason: str = "",
     """风控/异常时给动态代理账号换出口 IP。
 
     min_interval 用来防止**自动**轮换短时间反复换（把 IP 刷光）：
-    距上次轮换不足该秒数则跳过。
-    force=True 用于人工操作（面板点「换IP」）—— 操作员是明确意图，不该被间隔挡住。
+    距上次轮换不足该秒数则跳过。rotate_on_risk 只约束自动轮换。
+    force=True 用于人工操作（面板点「换IP」）—— 操作员是明确意图，间隔和开关都不该挡住。
     返回新 session；跳过或该号不是动态代理时返回 None。
     """
     info = get_account_proxy(account)
@@ -623,12 +653,12 @@ def rotate_account_session(account: str, *, reason: str = "",
         return None
     mode = info.get("mode") or "static"
     if mode == "extract":
-        if not info.get("rotate_on_risk", 1):
+        if not force and not info.get("rotate_on_risk", 1):
             return None
         return _rotate_extract_node(account, info, min_interval, force=force)
     if mode != "dynamic":
         return None
-    if not info.get("rotate_on_risk", 1):
+    if not force and not info.get("rotate_on_risk", 1):
         return None
     interval = (info.get("rotate_min_interval") if min_interval is None
                 else min_interval)
@@ -671,6 +701,7 @@ def _rotate_extract_node(account: str, info: dict,
     if node is None:
         return None
     _bind_node(account, info["id"], node)
+    _retire_prev_node(info, _node_by_id(old_id))
     return node.get("exit_hint") or node.get("username") or f"node{node['id']}"
 
 
@@ -767,10 +798,7 @@ def probe_proxy_record(proxy_id: str, session: str | None = None) -> dict:
         return result
     if info.get("mode") == "dynamic":
         sess = session or _new_session_id()
-        user = render_session_username(
-            info.get("session_template") or "", info.get("username") or "", sess
-        )
-        result = probe_exit_ip(_url_from_record(info, user))
+        result = probe_exit_ip(_url_from_record(info, _session_username(info, sess)))
         result["session"] = sess
         return result
     return probe_exit_ip(_url_from_record(info))
@@ -810,11 +838,40 @@ def probe_account_exit_ip(account: str) -> dict:
 #   host:port@user:pass
 #   user:pass@host:port
 #   host:port                <- 无鉴权
+# sessiontime-5（ipdeep，分钟）
 _SESSION_TTL_RE = re.compile(r"sessiontime[_-](\d+)", re.I)
 
 
 def parse_extract_lines(text: str) -> list[dict]:
-    """把提取接口的返回文本解析成节点列表。"""
+    """把提取接口的返回文本解析成节点列表（txt 行或 JSON 数组都认）。"""
+    body = (text or "").strip().lstrip("\ufeff")
+    if body.startswith("["):
+        try:
+            data = json.loads(body)
+        except (ValueError, TypeError):
+            data = None
+        if isinstance(data, list):
+            nodes = []
+            for item in data:
+                if isinstance(item, str):
+                    node = _parse_node_token(item)
+                elif isinstance(item, dict):
+                    host = str(item.get("host") or item.get("ip") or "").strip()
+                    port = str(item.get("port") or "").strip()
+                    if not host or not port.isdigit():
+                        continue
+                    token = f"{host}:{port}"
+                    user = str(item.get("username") or item.get("user") or "")
+                    password = str(item.get("password") or item.get("pass") or "")
+                    if user:
+                        token += f":{user}" + (f":{password}" if password else "")
+                    node = _parse_node_token(token)
+                else:
+                    node = None
+                if node:
+                    nodes.append(node)
+            if nodes:
+                return nodes
     nodes: list[dict] = []
     for raw in (text or "").splitlines():
         line = raw.strip().lstrip("\ufeff")
@@ -889,6 +946,9 @@ def fetch_extract_nodes(proxy_id: str, info: dict | None = None) -> dict:
     info = info or get_proxy(proxy_id)
     if not info:
         return {"ok": False, "added": 0, "error": "代理不存在"}
+    if proxy_1024.is_1024(info):
+        # 1024Proxy 的 API 提取（白名单鉴权、粘性时长在链接里）走专用流程
+        return proxy_1024.fetch_nodes(info)
     url = (info.get("extract_url") or "").strip()
     if not url:
         return {"ok": False, "added": 0, "error": "该代理未配置提取链接"}
@@ -1109,7 +1169,19 @@ def _ensure_node(account: str, info: dict, rotate: bool = False) -> dict | None:
     if node is None:
         return None
     _bind_node(account, info["id"], node)
+    _retire_prev_node(info, cur_node)
     return node
+
+
+def _retire_prev_node(info: dict, prev: dict | None) -> None:
+    """账号换到新节点后处理旧节点。
+
+    通用节点池：旧节点留在池里，别的号还能用。
+    服务商专用流程（如 1024Proxy API 提取）：节点是一次性的，旧节点直接作废，
+    否则池子小的时候「换 IP」会把刚释放的旧节点又挑回来。
+    """
+    if prev and proxy_1024.is_1024(info):
+        proxy_1024.release_node(prev["id"])
 
 
 def _should_extract(info: dict) -> bool:

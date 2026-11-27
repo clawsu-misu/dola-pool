@@ -671,6 +671,9 @@ dola 自 2026-10-12 起对 30 秒请求回「只支持 4～15 秒，按 15 秒�
 | GET | `/api/admin/proxies` | 代理列表（静态/动态、模式、绑定账号数） |
 | POST | `/api/admin/proxies` | 新建（`mode=static` 要 `host/port`；`mode=extract` 可只给 `extract_url` 或 `nodes_text`） |
 | PATCH | `/api/admin/proxies/{id}` | 改代理 |
+| GET | `/api/admin/proxies/1024/public-ip` | 本机公网 IP，给 1024 API 白名单复制用（服务器直连出口，不是浏览器所在机器）。`?refresh=1` 忽略缓存重新检测。成功 `{"ok":true,"ip":"..."}`，出网失败 `{"ok":false,"ip":"","error":"..."}`，不抛 500 |
+| POST | `/api/admin/proxies/1024` | 1024Proxy 专用流程新建（与上面的通用新建分开，见 [`PROXY.md`](PROXY.md) 第 5 节）。`kind=tunnel` 账密隧道：`gateway`（`host:port`）、`username`、`password`、`ttl`（粘性分钟，1-120）；`kind=api` API 提取：`link`（控制台生成的提取链接）、`num`、`time`。两种都要 `region`（只能 `JP`/`KR`，缺省 JP）。参数不合法返回 400，错误信息即面板提示原文 |
+| PATCH | `/api/admin/proxies/{proxy_id}/1024` | 改一条 1024Proxy 专用记录：不传的字段保持不变，`password` 留空 = 沿用原密码。`kind` 与记录不符（想改接入方式）返回 400；不是 1024Proxy 记录返回 400，记录不存在返回 404 |
 | POST | `/api/admin/proxies/{id}/password` | 已登录管理员显式读取单条代理密码，返回 `{ "password": "..." }`，响应禁止缓存；代理列表不返回密码 |
 | DELETE | `/api/admin/proxies/{id}` | 删代理 |
 | POST | `/api/admin/proxies/{id}/probe` | 探测代理出口 |

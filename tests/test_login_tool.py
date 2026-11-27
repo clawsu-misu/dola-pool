@@ -26,7 +26,7 @@ def test_build_1024_proxy_uses_official_username_format():
     url = login_tool.build_1024_proxy("acc1", "p@ss:word", "gw.example.com:10000",
                                       region="KR", session="ab12cd34", ttl=60)
     assert url == "http://acc1-region-KR-sid-ab12cd34-t-60:p%40ss%3Aword@gw.example.com:10000"
-    # 默认：出口日本、粘性 120 分钟、随机会话 ID（与面板 1024Proxy 预设一致）
+    # 默认：出口日本、粘性 120 分钟、随机会话 ID（与面板「1024Proxy」专用页签一致）
     assert re.fullmatch(r"http://acc1-region-JP-sid-[0-9a-f]{8}-t-120:pw@gw:1",
                         login_tool.build_1024_proxy("acc1", "pw", "gw:1"))
 
