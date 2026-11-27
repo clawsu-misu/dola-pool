@@ -136,7 +136,15 @@ def parse_cookie_json_text(raw: str) -> list[dict]:
             items = None
         cookies = _cookies_from_json_items(items) if items else []
         if cookies:
-            states.append(_state_from_cookies(cookies))
+            state = _state_from_cookies(cookies)
+            # 本地登录工具导出的完整包带 localStorage / sessionStorage / indexedDB
+            # （里面有 web_id 等设备标识）。批量粘贴导入也要留住，否则和只贴 Cookie 一样。
+            if isinstance(data, dict):
+                from dola_pool.cookie_login import normalize_storage_bundle
+                storage = normalize_storage_bundle(data)
+                if storage:
+                    state["storage"] = storage
+            states.append(state)
     return states
 
 

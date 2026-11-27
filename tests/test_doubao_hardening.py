@@ -49,6 +49,19 @@ def test_cookie_fingerprint_and_saved_device_survive_new_sessions_without_cross_
     dola.apply_state_to_ctx(ctx, {"cookies_list": [
         {"name": "s_v_web_id", "value": "other", "domain": ".doubao.com"}]})
     assert ctx["fp"] != "other" and "tz_name" not in dola.base_params(ctx)
+    # 本地登录工具只导出页面存储，没有 ctx：web_id 要从 __tea_cache_tokens_<aid> 里取
+    ctx = dola.fresh_ctx("JP", "test")
+    dola.apply_state_to_ctx(ctx, {"localStorage": {
+        "__tea_cache_tokens_495671": '{"web_id": "42", "user_unique_id": "42"}',
+        "other": "x"}})
+    assert ctx["web_id"] == ctx["tea_uuid"] == "42"
+    ctx = dola.fresh_ctx("JP", "test")
+    dola.apply_state_to_ctx(ctx, {"ctx": {"web_id": "saved"}, "storage": {"localStorage": {
+        "__tea_cache_tokens_495671": '{"web_id": "99"}'}}})
+    assert ctx["web_id"] == "saved"          # 已经有 ctx 的不覆盖
+    ctx = dola.fresh_ctx("JP", "test")
+    dola.apply_state_to_ctx(ctx, {"localStorage": {"__tea_cache_tokens_495671": "not-json"}})
+    assert ctx["web_id"] == ""               # 坏数据就当没有
     assert "Edg/" not in dola.UA
 
 

@@ -827,6 +827,25 @@ def apply_state_to_ctx(ctx: dict[str, str], state: dict[str, Any]) -> None:
     for k in ("fp", "web_id", "tea_uuid", "device_id"):
         if saved.get(k):
             ctx[k] = str(saved[k])
+    # 本地登录工具导出的是页面 localStorage，不是上面那种 ctx。dola 的设备标识
+    # （web_id）写在 __tea_cache_tokens_<aid> 里，不带上的话纯 API 每次都是空设备号。
+    if not ctx.get("web_id"):
+        storage = state.get("storage") if isinstance(state.get("storage"), dict) else {}
+        local = storage.get("localStorage") if isinstance(storage.get("localStorage"), dict) else {}
+        if not local and isinstance(state.get("localStorage"), dict):
+            local = state["localStorage"]
+        for key, raw in local.items():
+            if not str(key).startswith("__tea_cache_tokens_"):
+                continue
+            try:
+                tea = json.loads(raw or "{}")
+            except ValueError:
+                continue
+            web_id = str((tea or {}).get("web_id") or (tea or {}).get("user_unique_id") or "")
+            if web_id and web_id != "0":
+                ctx["web_id"] = web_id
+                ctx["tea_uuid"] = web_id
+            break
     cookies = state.get("cookies_list") or [dict(v, name=k) for k, v in (state.get("cookies") or {}).items()
                                              if isinstance(v, dict)]
     cookie_fp = next((str(c.get("value")) for c in cookies

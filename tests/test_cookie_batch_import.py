@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from test_async_compat import _run
+
 
 @pytest.fixture(autouse=True)
 def _stubs():
@@ -154,6 +156,25 @@ def test_import_cookie_account_falls_back_to_pure(tmp_path, monkeypatch):
     assert state["cookies"]["sessionid"]["value"] == "sid-pure"
     # 不应该留下浏览器 profile 里的其它文件
     assert sorted(p.name for p in state_file.parent.iterdir()) == ["cookie_state.json"]
+
+
+def test_import_keeps_page_storage_from_a_full_login_bundle(tmp_path, monkeypatch):
+    """本地登录工具推来的完整包：localStorage 要落进 cookie_state.json，纯 API 才读得到设备标识。"""
+    import asyncio
+    from dola_pool import cookie_login
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cookie_login, "browser_backend_available", lambda: (False, "无浏览器"))
+    _pure_probe_stub(monkeypatch)
+    from dola_pool import config
+    monkeypatch.setattr(config, "PURE_API_ENABLED", True)
+
+    bundle = {"cookies": [{"name": "sessionid", "value": "sid-full", "domain": ".dola.com", "path": "/"}],
+              "localStorage": {"__tea_cache_tokens_495671": '{"web_id":"42"}'}}
+    result = _run(
+        cookie_login.import_cookie_account("acc9", bundle, require_login=False))
+    state = json.loads(Path(result["cookie_state_file"]).read_text(encoding="utf-8"))
+    assert state["storage"]["localStorage"]["__tea_cache_tokens_495671"] == '{"web_id":"42"}'
 
 
 def test_import_cookie_account_forced_browser_still_falls_back(tmp_path, monkeypatch):

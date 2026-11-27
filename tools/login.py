@@ -158,8 +158,27 @@ def describe_exit(proxy_url, log=print):
         log(f"⚠ 出口不是日本/韩国（{info.get('country_code')}），dola 可能拒绝访问")
 
 
+# 只从 dola 自己的源读存储。登录页会嵌第三方脚本，它们的 localStorage 里
+# 可能有追踪标识，不该跟着账号一起送到服务器。
+_STORAGE_JS = r"""() => {
+  const own = (storage) => {
+    const out = {};
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (location.hostname.endsWith('dola.com')) out[key] = storage.getItem(key);
+    }
+    return out;
+  };
+  return { localStorage: own(localStorage), sessionStorage: own(sessionStorage) };
+}"""
+
+
 async def capture_login(account, proxy_kwargs, log=print):
-    """开有头浏览器让人工登录，抓到 sessionid 后返回 dola 域 cookie 列表。"""
+    """开有头浏览器让人工登录，抓到 sessionid 后返回 (dola 域 cookie, 页面存储)。
+
+    页面存储是 localStorage / sessionStorage：dola 的设备标识（web_id 等）写在里面，
+    只传 Cookie 时服务器端的纯 API 拿不到，提交容易被判「访问频繁」。
+    """
     profile_dir = Path("accounts") / account
     profile_dir.mkdir(parents=True, exist_ok=True)
     kwargs = {"headless": False, "args": LAUNCH_ARGS, "locale": "ja-JP", "timezone_id": "Asia/Tokyo"}
@@ -180,7 +199,12 @@ async def capture_login(account, proxy_kwargs, log=print):
                 if any(c.get("name") == "sessionid" and c.get("value") for c in cookies):
                     log(f"[{account}] 检测到登录态，等会话 cookie 写完...")
                     await page.wait_for_timeout(4000)
-                    return cookies
+                    storage = {}
+                    try:
+                        storage = await page.evaluate(_STORAGE_JS) or {}
+                    except Exception as exc:  # noqa: BLE001 - 存储读不到不该让登录白做
+                        log(f"[{account}] 页面存储读取失败（{type(exc).__name__}），只导出 Cookie")
+                    return cookies, storage
                 await page.wait_for_timeout(POLL_SECONDS * 1000)
             raise ToolError(f"{LOGIN_SECONDS // 60} 分钟内未检测到登录，请重新开始")
         except Exception as exc:
@@ -209,9 +233,12 @@ async def login_and_export(account, proxy_kwargs, proxy_url, *, fresh=False, out
     if fresh and profile_dir.exists():
         shutil.rmtree(profile_dir)
         log("已清掉本地旧 profile，从零登录")
-    bundle = cookie_bundle(account, await capture_login(account, proxy_kwargs, log=log))
+    cookies, storage = await capture_login(account, proxy_kwargs, log=log)
+    bundle = cookie_bundle(account, cookies, storage)
     target = export_bundle(bundle, Path(out) if out else profile_dir / EXPORT_NAME)
-    log(f"✓ 已导出 {len(bundle['cookies'])} 条 Cookie → {target}")
+    stored = sum(len(v) for v in (bundle.get("localStorage"), bundle.get("sessionStorage")) if v)
+    log(f"✓ 已导出 {len(bundle['cookies'])} 条 Cookie"
+        + (f"、{stored} 项页面存储" if stored else "") + f" → {target}")
     copied = False
     if clipboard:
         copied = copy_to_clipboard(json.dumps(bundle, ensure_ascii=False))
@@ -222,13 +249,23 @@ async def login_and_export(account, proxy_kwargs, proxy_url, *, fresh=False, out
     return bundle, target, copied
 
 
-def cookie_bundle(account, cookies):
-    """按 dola-pool-cookies-v1 打包 dola 域 cookie（字段白名单，与服务器导出格式互通）。"""
+def cookie_bundle(account, cookies, storage=None):
+    """按 dola-pool-cookies-v1 打包 dola 域 cookie（字段白名单，与服务器导出格式互通）。
+
+    storage 是页面的 localStorage / sessionStorage。dola 的设备标识写在 localStorage 里，
+    服务器导入时会一并落盘；没有就只导 Cookie，和旧格式兼容。
+    """
     items = [{k: c[k] for k in COOKIE_FIELDS if k in c}
              for c in cookies if isinstance(c, dict) and _dola_cookie(c)]
     if not any(c["name"] == "sessionid" and c.get("value") for c in items):
         raise ToolError("抓到的 Cookie 里没有 sessionid，登录没有完成")
-    return {"format": "dola-pool-cookies-v1", "account": account, "source": "local-login", "cookies": items}
+    bundle = {"format": "dola-pool-cookies-v1", "account": account, "source": "local-login",
+              "cookies": items}
+    for key in ("localStorage", "sessionStorage"):
+        data = (storage or {}).get(key)
+        if isinstance(data, dict) and data:
+            bundle[key] = {str(k): "" if v is None else str(v) for k, v in data.items()}
+    return bundle
 
 
 def export_bundle(bundle, path):
@@ -292,11 +329,15 @@ def server_login(base, username, password):
 
 
 def push_to_server(base, token, bundle, *, skip_verify=False, proxy_id=None):
-    """推送导出的 Cookie 到服务器，等导入（含在线验证）结束，返回结果说明。"""
+    """推送导出的登录态到服务器，等导入（含在线验证）结束，返回结果说明。
+
+    传整个导出包而不只是 cookies 数组：包里的 localStorage / sessionStorage
+    服务器会原样恢复，纯 API 出片才拿得到 web_id 这些设备标识。
+    """
     name = bundle["account"]
     _call(base, token, "POST", "/api/admin/accounts", json={
         "name": name,
-        "cookies": json.dumps(bundle["cookies"], ensure_ascii=False),
+        "cookies": json.dumps(bundle, ensure_ascii=False),
         "cookie_skip_verify": bool(skip_verify),
         "proxy_id": proxy_id,
     })
